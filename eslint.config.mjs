@@ -13,6 +13,7 @@ export default [
     rules: {
       'prefer-let/prefer-let': 'warn',
       'prefer-const': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'off',
     },
     plugins: {
       'prefer-let': {
