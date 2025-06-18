@@ -12,7 +12,7 @@ export class Group {
     return this.tokens.length
   }
 
-  public get location() {
+  public get location(): Location {
     return {
       line: this.tokens[0].line,
       column: this.tokens[0].col,
@@ -61,32 +61,32 @@ export interface DateNode extends Node<'date'> {
 }
 
 export interface Amount extends Node<'amount'> {
-  amount: Token
+  amount: Token<'number'>
   parsedAmount: number
   commodity: Group
   unitPlacement: 'pre' | 'post'
 }
 
 export interface Comment extends Node<'comment'> {
-  comment: Token
+  comment: Token<'comment'>
 }
 
 export interface AuxDate extends Node<'auxDate'> {
-  equal: Token
+  equal: Token<'equal'>
   date: DateNode
 }
 
 export interface Code extends Node<'code'> {
-  lparen: Token
+  lparen: Token<'lparen'>
   contents: Group
-  rparen: Token
+  rparen: Token<'rparen'>
 }
 
 export interface Transaction extends Node<'transaction'> {
   date: DateNode
   auxDate?: AuxDate
-  cleared?: Token
-  pending?: Token
+  cleared?: Token<'star'>
+  pending?: Token<'bang'>
   code?: Code
   payee?: Payee
   comments: Comment[]
@@ -100,13 +100,13 @@ export interface Posting extends Node<'posting'> {
 }
 
 export interface Directive extends Node<'directive'> {
-  name: Token
+  name: Token<'identifier'>
   arg?: Group
   subDirectives: SubDirective[]
 }
 
 export interface SubDirective extends Node<'subDirective'> {
-  key: Token
+  key: Token<'identifier'>
   value?: Group
 }
 

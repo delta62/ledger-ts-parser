@@ -36,13 +36,10 @@ const LEDGER_RULES = {
 }
 
 export type TokenType = keyof typeof LEDGER_RULES
-
-export type Token = Omit<moo.Token, 'type'> & {
-  type: TokenType
-}
+export type Token<T extends TokenType = TokenType> = moo.Token<typeof LEDGER_RULES, T>
 
 export class Lexer implements Iterable<Token> {
-  private lexer: moo.Lexer
+  private lexer: moo.Lexer<typeof LEDGER_RULES>
   private _peek: Token | undefined
 
   constructor(input: string) {

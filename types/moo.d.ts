@@ -22,7 +22,7 @@ export type TypeMapper = (x: string) => string
 
 export function keywords(kws: Record<string, string | string[]>): TypeMapper
 
-export function compile(rules: Rules): Lexer
+export function compile<R extends Rules>(rules: R): Lexer<R>
 
 export function states(states: Record<string, Rules>, start?: string): Lexer
 
@@ -64,11 +64,11 @@ export interface Rule<T> {
 }
 export type Rules = Record<string, RegExp | RegExp[] | string | string[] | Rule | Rule[] | ErrorRule | FallbackRule>
 
-export interface Lexer {
+export interface Lexer<R extends Rules> {
   /**
    * Returns a string with a pretty error message.
    */
-  formatError(token?: Token, message?: string): string
+  formatError(token?: Token<R>, message?: string): string
   /**
    * @deprecated since 0.5.0. Now just returns true
    */
@@ -77,7 +77,7 @@ export interface Lexer {
    * When you reach the end of Moo's internal buffer, next() will return undefined.
    * You can always reset() it and feed it more data when that happens.
    */
-  next(): Token | undefined
+  next(): Token<R> | undefined
   /**
    * Empty the internal buffer of the lexer, and set the line, column, and offset counts back to their initial value.
    */
@@ -101,10 +101,10 @@ export interface Lexer {
    */
   setState(state: string): void
 
-  [Symbol.iterator](): Iterator<Token>
+  [Symbol.iterator](): Iterator<Token<R>>
 }
 
-export interface Token {
+export interface Token<R extends Rules, T extends keyof R = keyof R> {
   /**
    * Returns value of the token, or its type if value isn't available.
    */
@@ -112,11 +112,11 @@ export interface Token {
   /**
    * The name of the group, as passed to compile.
    */
-  type?: string
+  type: T
   /**
    * The match contents.
    */
-  value: unknown
+  value: T extends keyof R ? ReturnType<R[T]['value']> : unknown
   /**
    * The number of bytes from the start of the buffer where the match starts.
    */

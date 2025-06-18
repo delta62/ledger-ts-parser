@@ -19,6 +19,9 @@ import {
 } from './types'
 import { ok } from './util'
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TupleToUnion<T extends readonly any[]> = T[number]
+
 function getLocation(token: Token): Location {
   return {
     line: token.line,
@@ -92,13 +95,13 @@ export class Parser {
 
     let date = parsedDate.unwrap()
     let auxDate: AuxDate | undefined
-    let pending: Token | undefined
-    let cleared: Token | undefined
+    let pending: Token<'bang'> | undefined
+    let cleared: Token<'star'> | undefined
     let code: Code | undefined
     let payee: Payee | undefined
 
     if (this.peekType() === 'equal') {
-      let equal = this.next()!
+      let equal = this.next() as Token<'equal'>
       let date = this.parseDate()
       if (date.isErr()) {
         return date
@@ -115,11 +118,11 @@ export class Parser {
       this.skipWhitespace()
 
       if (this.peekType() === 'bang') {
-        pending = this.next()
+        pending = this.next() as Token<'bang'>
       }
 
       if (this.peekType() === 'star') {
-        cleared = this.next()
+        cleared = this.next() as Token<'star'>
       }
 
       if (this.peekType() === 'lparen') {
@@ -150,7 +153,7 @@ export class Parser {
       this.next() // Skip whitespace
 
       if (this.peekType() === 'comment') {
-        let commentToken = this.next()!
+        let commentToken = this.next() as Token<'comment'>
         comments.push({ type: 'comment', comment: commentToken })
         continue
       } else if (this.peekType() === 'newline') {
@@ -198,7 +201,7 @@ export class Parser {
       }))
   }
 
-  private expectInteger(): Result<Token, ParseError> {
+  private expectInteger(): Result<Token<'number'>, ParseError> {
     return this.expect('number').andThen(token => {
       if (!Number.isInteger(token.value)) {
         return Result.err(new ParseError(`Expected integer, but found ${token.text}`, 'INVALID_INTEGER'))
@@ -276,7 +279,7 @@ export class Parser {
 
   private parseAmount(): Result<Amount, ParseError> {
     let minus: Token | undefined
-    let amount: Token | undefined
+    let amount: Token<'number'> | undefined
     let commodity: Group
     let unitPlacement: Amount['unitPlacement']
 
@@ -286,7 +289,7 @@ export class Parser {
     }
 
     if (this.peekType() === 'number') {
-      let numberToken = this.next()!
+      let numberToken = this.next() as Token<'number'>
       unitPlacement = 'post'
       amount = numberToken
     } else {
@@ -310,7 +313,7 @@ export class Parser {
     }
 
     let sign = minus ? -1 : 1
-    let parsedAmount = (amount.value as number) * sign
+    let parsedAmount = amount.value * sign
 
     return Result.ok({
       type: 'amount',
@@ -355,6 +358,8 @@ export class Parser {
     }
   }
 
+  private expect<T extends TokenType>(type: T): Result<Token<T>, ParseError>
+  private expect<T extends readonly TokenType[]>(types: T): Result<Token<TupleToUnion<T>>, ParseError>
   private expect(type: TokenType | TokenType[]): Result<Token, ParseError> {
     let next = this.next()
 
@@ -437,27 +442,29 @@ export class Parser {
 }
 
 function dateFromTokens(
-  tokens: [Token, Token, Token, Token | undefined, Token | undefined]
+  tokens: [
+    Token<'number'>,
+    Token<'hyphen' | 'slash'>,
+    Token<'number'>,
+    Token<'hyphen' | 'slash'> | undefined,
+    Token<'number'> | undefined
+  ]
 ): Result<{ raw: Group; parsed: Date }, ParseError> {
   let parsed: Result<Date, ParseError>
   let [n1, sep1, n2, , n3] = tokens
   let raw = new Group(...tokens.filter(t => t !== undefined))
 
   if (n3) {
-    let y = n1.value as number
-    let m = n2.value as number
-    let d = n3.value as number
-
     if (sep1.type === 'hyphen') {
       // %Y-%m-%d
-      parsed = tryBuildDate(y, m, d)
+      parsed = tryBuildDate(n1.value, n2.value, n3.value)
     } else if (n1.text.length === 4) {
       // %Y/%m/%d
-      parsed = tryBuildDate(y, m, d)
+      parsed = tryBuildDate(n1.value, n2.value, n3.value)
     } else if (n1.text.length === 2) {
       // %y/%m/%d
-      let year = y < 70 ? 2000 + y : 1900 + y
-      parsed = tryBuildDate(year, m, d)
+      let year = n1.value < 70 ? 2000 + n1.value : 1900 + n1.value
+      parsed = tryBuildDate(year, n2.value, n3.value)
     } else {
       let err = new ParseError('Invalid date format', 'INVALID_DATE', raw.location)
       parsed = Result.err(err)
@@ -468,11 +475,11 @@ function dateFromTokens(
       parsed = Result.err(err)
     } else if (n1.text.length === 4) {
       // %Y/%m
-      parsed = tryBuildDate(n1.value as number, n2.value as number, 1)
+      parsed = tryBuildDate(n1.value, n2.value, 1)
     } else if (n1.text.length === 2) {
       // %m/%d
       let year = new Date().getFullYear()
-      parsed = tryBuildDate(year, n1.value as number, n2.value as number)
+      parsed = tryBuildDate(year, n1.value, n2.value)
     } else {
       let err = new ParseError('Invalid date format', 'INVALID_DATE', raw.location)
       parsed = Result.err(err)
