@@ -5,8 +5,11 @@ interface TokenMatchers<R = unknown> {
   toHaveTokenType: (type: string) => R
   toHaveSymbol: (key: string, location?: Location) => R
   toHaveAccountName: (expectedName: string) => R
-  toHavePayee: (name: string) => R
+  toHavePayee: (name?: string) => R
+  toBeCleared: () => R
+  toBePending: () => R
   toHaveDate: (date: Date) => R
+  toHaveAuxDate: (date: Date) => R
   failsToParse: (messageIncludes?: string) => R
 }
 

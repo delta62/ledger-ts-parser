@@ -28,13 +28,19 @@ interface PostingSpec {
 
 interface TransactionSpec {
   date: string
+  auxDate: string
   payee: string
+  pending: boolean
+  cleared: boolean
   postings: PostingSpec[]
 }
 
 function formatTransaction(spec: Partial<TransactionSpec> = {}): string {
   let date = spec.date || '2024-06-12'
+  let auxDate = spec.auxDate ? `=${spec.auxDate}` : ''
   let payee = spec.payee || 'Test Payee'
+  let pending = spec.pending ? ' !' : ''
+  let cleared = spec.cleared ? ' *' : ''
   let postings = spec.postings || [{ accountName: 'Assets:Bank:Checking', amount: '$100.00' }]
 
   let postingLines = postings
@@ -47,24 +53,10 @@ function formatTransaction(spec: Partial<TransactionSpec> = {}): string {
     })
     .join('\n')
 
-  return `${date} ${payee}\n${postingLines}`
+  return `${date}${auxDate}${pending}${cleared} ${payee}\n${postingLines}`
 }
 
 describe('Ledger Parser', () => {
-  it('parses payees', () => {
-    let input = formatTransaction({ payee: 'Whole Foods' })
-    let tx = parseTransaction(input)
-
-    expect(tx).toHavePayee('Whole Foods')
-  })
-
-  it('adds payees to the symbol table', () => {
-    let input = formatTransaction({ payee: 'Grocery Store' })
-    let result = parse(input)
-
-    expect(result.payees).toHaveSymbol('Grocery Store')
-  })
-
   it('parses a posting', () => {
     let input = formatTransaction({ postings: [{ accountName: 'Assets:Bank:Checking', amount: '$100.00' }] })
     let tx = parseTransaction(input)
@@ -153,5 +145,141 @@ describe('Dates', () => {
   it('fails to parse dates with decimal points', () => {
     let input = formatTransaction({ date: '2024-06-12.5' })
     expect(input).failsToParse('integer')
+  })
+})
+
+describe('auxiliary dates', () => {
+  it('parses auxiliary dates', () => {
+    let input = formatTransaction({ date: '2024-06-12', auxDate: '2024-06-13' })
+    let tx = parseTransaction(input)
+
+    expect(tx).toHaveAuxDate(new Date(2024, 5, 13))
+  })
+
+  it('parses auxiliary dates with equal sign', () => {
+    let input = formatTransaction({ date: '2024-06-12', auxDate: '2024-06-13' })
+    let tx = parseTransaction(input)
+
+    expect(tx).toHaveAuxDate(new Date(2024, 5, 13))
+  })
+
+  it('fails to parse auxiliary with only an equal sign', () => {
+    let input = '2024-06-12= Grocery Store'
+    expect(input).failsToParse('Expected number')
+  })
+})
+
+describe('transaction flags', () => {
+  it('parses cleared transactions', () => {
+    let input = formatTransaction({ payee: 'Test Payee', cleared: true })
+    let tx = parseTransaction(input)
+
+    expect(tx).toBeCleared()
+    expect(tx).not.toBePending()
+    expect(tx).toHavePayee('Test Payee')
+  })
+
+  it('parses pending transactions', () => {
+    let input = formatTransaction({ payee: 'Test Payee', pending: true })
+    let tx = parseTransaction(input)
+
+    expect(tx).toBePending()
+    expect(tx).not.toBeCleared()
+    expect(tx).toHavePayee('Test Payee')
+  })
+
+  it('parses transactions with no flags', () => {
+    let input = formatTransaction({ payee: 'Test Payee' })
+    let tx = parseTransaction(input)
+    expect(tx).not.toBePending()
+    expect(tx).not.toBeCleared()
+    expect(tx).toHavePayee('Test Payee')
+  })
+
+  describe('multiple flags', () => {
+    it('parses transactions with both flags, cleared first', () => {
+      let input = '2024-06-12 *! Test Payee'
+      let tx = parseTransaction(input)
+
+      expect(tx).toBePending()
+      expect(tx).toBeCleared()
+      expect(tx).toHavePayee('Test Payee')
+    })
+
+    it('parses transactions with both flags, pending first', () => {
+      let input = '2024-06-12 !* Test Payee'
+      let tx = parseTransaction(input)
+
+      expect(tx).toBeCleared()
+      expect(tx).toBePending()
+      expect(tx).toHavePayee('Test Payee')
+    })
+  })
+})
+
+describe('payees', () => {
+  describe('no payee', () => {
+    it('parses transactions that end in newline', () => {
+      let input = '2024-06-12\n'
+      let tx = parseTransaction(input)
+
+      expect(tx).not.toHavePayee()
+    })
+
+    it('parses transactions that end in spaces and then newline', () => {
+      let input = '2024-06-12    \n'
+      let tx = parseTransaction(input)
+
+      expect(tx).not.toHavePayee()
+    })
+
+    it('parses transactions that end in EOF', () => {
+      let input = '2024-06-12    \n'
+      let tx = parseTransaction(input)
+
+      expect(tx).not.toHavePayee()
+    })
+
+    it('parses transactions that end in spaces and then EOF', () => {
+      let input = '2024-06-12    '
+      let tx = parseTransaction(input)
+
+      expect(tx).not.toHavePayee()
+    })
+  })
+
+  it('parses payees', () => {
+    let input = formatTransaction({ payee: 'KFC' })
+    let tx = parseTransaction(input)
+
+    expect(tx).toHavePayee('KFC')
+  })
+
+  it('parses payees with spaces', () => {
+    let input = formatTransaction({ payee: 'Local Coffee Shop' })
+    let tx = parseTransaction(input)
+
+    expect(tx).toHavePayee('Local Coffee Shop')
+  })
+
+  it('parses payees with big spaces', () => {
+    let input = formatTransaction({ payee: 'Local\tCoffee   Shop' })
+    let tx = parseTransaction(input)
+
+    expect(tx).toHavePayee('Local\tCoffee   Shop')
+  })
+
+  it('parses payees with special characters', () => {
+    let input = formatTransaction({ payee: 'Grocery Store & Co.' })
+    let tx = parseTransaction(input)
+
+    expect(tx).toHavePayee('Grocery Store & Co.')
+  })
+
+  it('adds payees to the symbol table', () => {
+    let input = formatTransaction({ payee: 'Grocery Store' })
+    let result = parse(input)
+
+    expect(result.payees).toHaveSymbol('Grocery Store')
   })
 })

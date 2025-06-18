@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import Lexer, { Token } from '../src/lexer'
-import { Group } from '../src'
+import { Group } from '../src/group'
 
 function lexAll(input: string, opts?: { keepWhitespace?: boolean }): Token[] {
   let lexer = new Lexer(input)

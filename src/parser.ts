@@ -8,7 +8,6 @@ import {
   ASTChild,
   Location,
   DateNode,
-  Group,
   Payee,
   AuxDate,
   Comment,
@@ -17,6 +16,7 @@ import {
   Amount,
   AccountRef,
 } from './types'
+import { Group } from './group'
 import { ok } from './util'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -117,12 +117,19 @@ export class Parser {
     if (this.peekType() === 'ws') {
       this.skipWhitespace()
 
-      if (this.peekType() === 'bang') {
-        pending = this.next() as Token<'bang'>
-      }
+      let flag = this.skipIf(['bang', 'star'])
 
-      if (this.peekType() === 'star') {
-        cleared = this.next() as Token<'star'>
+      this.skipWhitespace()
+
+      if (flag) {
+        if (flag.type === 'bang') {
+          pending = flag as Token<'bang'>
+          cleared = this.skipIf('star')
+        } else if (flag.type === 'star') {
+          cleared = flag as Token<'star'>
+          pending = this.skipIf('bang')
+        }
+        this.skipWhitespace()
       }
 
       if (this.peekType() === 'lparen') {
@@ -131,13 +138,17 @@ export class Parser {
           return parsedCode
         }
         code = parsedCode.unwrap()
+        this.skipWhitespace()
       }
 
-      this.skipWhitespace()
-      payee = { type: 'payee', name: this.slurp() }
+      let payeeName = this.slurp()
+      let payeeText = payeeName.toString().trim()
 
-      if (!this.payees.has(payee.name.toString())) {
-        this.payees.add(payee.name.toString(), payee.name.location)
+      if (payeeText) {
+        payee = { type: 'payee', name: payeeName }
+        if (!this.payees.has(payeeText)) {
+          this.payees.add(payeeText, payee.name.location)
+        }
       }
     }
 
@@ -332,6 +343,24 @@ export class Parser {
     } else {
       this.children.push(result.unwrap())
     }
+  }
+
+  private skipIf(): Token | undefined
+  private skipIf<T extends TokenType>(type: T): Token<T> | undefined
+  private skipIf<T extends readonly TokenType[]>(types: T): Token<TupleToUnion<T>> | undefined
+  private skipIf(types?: TokenType | TokenType[]): Token | undefined {
+    let nextType = this.peekType()
+    if (!nextType) {
+      return undefined
+    }
+
+    let acceptedTypes = Array.isArray(types) ? types : [types]
+
+    if (acceptedTypes.includes(nextType)) {
+      return this.next()
+    }
+
+    return undefined
   }
 
   private peekType(): TokenType | undefined {
