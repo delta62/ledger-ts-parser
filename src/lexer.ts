@@ -1,24 +1,11 @@
 import moo from 'moo'
 
-function parseNumber(value: string): number {
-  // If the string contains a comma but no period, treat comma as decimal separator (European style)
-  if (value.includes(',') && !value.includes('.')) {
-    // Remove thousands separators (periods), replace decimal comma with dot
-    value = value.replace(/\./g, '').replace(',', '.')
-    return parseFloat(value)
-  }
-  // If the string contains both comma and period, or only period, treat period as decimal separator (US style)
-  // Remove thousands separators (commas)
-  value = value.replace(/,/g, '')
-  return parseFloat(value)
-}
-
 const LEDGER_RULES = {
   newline: { match: /\r?\n/, lineBreaks: true },
   ws: /[ \t]+/,
   comment: /(?:(?:^;)|(?:^[;#%*|]))[^\n]*/,
   string: /"[^"\n]*"/,
-  number: { match: /\d+(?:[.,]\d+)*(?:[.,]\d+)?/, value: parseNumber },
+  number: /\d+(?:[.,]\d+)*(?:[.,]\d+)?/,
   equal: /=/,
   tilde: /~/,
   lparen: /\(/,

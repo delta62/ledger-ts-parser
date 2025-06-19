@@ -26,7 +26,7 @@ export function compile<R extends Rules>(rules: R): Lexer<R>
 
 export function states(states: Record<string, Rules>, start?: string): Lexer
 
-export interface Rule<T> {
+export interface Rule {
   match?: RegExp | string | string[]
   /**
    * Moo tracks detailed information about the input for you.
@@ -54,7 +54,7 @@ export interface Rule<T> {
    * Moo doesn't allow capturing groups, but you can supply a transform function, value(),
    * which will be called on the value before storing it in the Token object.
    */
-  value?: (x: string) => T
+  value?: (x: string) => string
 
   /**
    * Used for mapping one set of types to another.
@@ -116,7 +116,7 @@ export interface Token<R extends Rules, T extends keyof R = keyof R> {
   /**
    * The match contents.
    */
-  value: T extends keyof R ? ReturnType<R[T]['value']> : unknown
+  value: string
   /**
    * The number of bytes from the start of the buffer where the match starts.
    */

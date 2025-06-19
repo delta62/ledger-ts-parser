@@ -75,10 +75,10 @@ describe('Lexer', () => {
     expect(token.value).toBe('; this is a comment')
   })
 
-  it('lexes number', () => {
+  it('lexes integer', () => {
     let token = lexOne('2024')
     expect(token).toHaveTokenType('number')
-    expect(token).toHaveProperty('value', 2024)
+    expect(token).toHaveProperty('value', '2024')
   })
 
   it('lexes cleared', () => {
@@ -111,21 +111,21 @@ describe('Lexer', () => {
   it('lexes number', () => {
     let token = lexOne('123.45')
     expect(token).toHaveTokenType('number')
-    expect(token).toHaveProperty('value', 123.45)
+    expect(token).toHaveProperty('value', '123.45')
   })
 
   it('lexes negative amount', () => {
     let [hyphen, dollar, amount] = lexAll('-$123.45')
     expect(hyphen).toHaveTokenType('hyphen')
     expect(dollar).toHaveTokenType('symbol')
-    expect(amount).toHaveProperty('value', 123.45)
+    expect(amount).toHaveProperty('value', '123.45')
   })
 
   it('lexes negative amount following currency sign', () => {
     let [dollar, hyphen, amount] = lexAll('$-123.45')
     expect(dollar).toHaveTokenType('symbol')
     expect(hyphen).toHaveTokenType('hyphen')
-    expect(amount).toHaveProperty('value', 123.45)
+    expect(amount).toHaveProperty('value', '123.45')
   })
 
   it('lexes amount with comma', () => {
@@ -133,14 +133,14 @@ describe('Lexer', () => {
     expect(commodity).toHaveTokenType('symbol')
     expect(commodity.value).toBe('$')
     expect(amount).toHaveTokenType('number')
-    expect(amount.value).toBe(1234.56)
+    expect(amount.value).toBe('1,234.56')
   })
 
   it('lexes an amount in euros', () => {
     let [currency, amount] = lexAll('€ 123,45')
     expect(currency).toHaveTokenType('symbol')
     expect(amount).toHaveTokenType('number')
-    expect(amount).toHaveProperty('value', 123.45)
+    expect(amount).toHaveProperty('value', '123,45')
   })
 
   it('lexes an amount in euros with no space', () => {
@@ -148,7 +148,7 @@ describe('Lexer', () => {
     expect(commodity).toHaveTokenType('symbol')
     expect(commodity).toHaveProperty('text', '€')
     expect(amount).toHaveTokenType('number')
-    expect(amount).toHaveProperty('value', 123.45)
+    expect(amount).toHaveProperty('value', '123,45')
   })
 
   it('lexes account', () => {

@@ -22,7 +22,7 @@ function parseTransaction(input: string): Transaction {
 }
 
 interface PostingSpec {
-  accountName: string
+  account: string
   amount?: string
 }
 
@@ -41,11 +41,11 @@ function formatTransaction(spec: Partial<TransactionSpec> = {}): string {
   let payee = spec.payee || 'Test Payee'
   let pending = spec.pending ? ' !' : ''
   let cleared = spec.cleared ? ' *' : ''
-  let postings = spec.postings || [{ accountName: 'Assets:Bank:Checking', amount: '$100.00' }]
+  let postings = spec.postings || [{ account: 'Assets:Bank:Checking', amount: '$100.00' }]
 
   let postingLines = postings
     .map(p => {
-      let line = `  ${p.accountName}`
+      let line = `  ${p.account}`
       if (p.amount) {
         line += `  ${p.amount}`
       }
@@ -58,7 +58,7 @@ function formatTransaction(spec: Partial<TransactionSpec> = {}): string {
 
 describe('Ledger Parser', () => {
   it('parses a posting', () => {
-    let input = formatTransaction({ postings: [{ accountName: 'Assets:Bank:Checking', amount: '$100.00' }] })
+    let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking', amount: '$100.00' }] })
     let tx = parseTransaction(input)
 
     expect(tx.postings).toHaveLength(1)
@@ -66,7 +66,7 @@ describe('Ledger Parser', () => {
   })
 
   it('adds accounts in postrings to the symbol table', () => {
-    let input = formatTransaction({ postings: [{ accountName: 'Assets:Bank:Checking', amount: '$100.00' }] })
+    let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking', amount: '$100.00' }] })
     let result = parse(input)
 
     expect(result.accounts).toHaveSymbol('Assets:Bank:Checking')
@@ -75,8 +75,8 @@ describe('Ledger Parser', () => {
   it('parses multiple postings', () => {
     let input = formatTransaction({
       postings: [
-        { accountName: 'Assets:Bank:Checking', amount: '$100.00' },
-        { accountName: 'Expenses:Food', amount: '$50.00' },
+        { account: 'Assets:Bank:Checking', amount: '$100.00' },
+        { account: 'Expenses:Food', amount: '$50.00' },
       ],
     })
     let tx = parseTransaction(input)
@@ -268,5 +268,101 @@ describe('payees', () => {
     let result = parse(input)
 
     expect(result.payees).toHaveSymbol('Grocery Store')
+  })
+})
+
+describe('postings', () => {
+  it('parses account names', () => {
+    let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking' }] })
+    let tx = parseTransaction(input)
+
+    expect(tx.postings).toHaveLength(1)
+    expect(tx.postings[0]).toHaveAccountName('Assets:Bank:Checking')
+  })
+
+  it('parses account names with special characters', () => {
+    let input = formatTransaction({ postings: [{ account: 'Assets:Bank:l33tsp#@K' }] })
+    let tx = parseTransaction(input)
+
+    expect(tx.postings[0]).toHaveAccountName('Assets:Bank:l33tsp#@K')
+  })
+
+  it('parses account names with spaces', () => {
+    let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking Account' }] })
+    let tx = parseTransaction(input)
+
+    expect(tx.postings[0]).toHaveAccountName('Assets:Bank:Checking Account')
+  })
+
+  it('parses postings with amounts', () => {
+    let input = formatTransaction({
+      postings: [{ account: 'Assets:Bank:Checking', amount: '100 USD' }],
+    })
+    let [posting] = parseTransaction(input).postings
+
+    expect(posting).toHaveAmount('100')
+    expect(posting).toHaveCommodity('USD', { position: 'post' })
+  })
+
+  it('parses postings with negative amounts', () => {
+    let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking', amount: '-$100.00' }] })
+    let [posting] = parseTransaction(input).postings
+
+    expect(posting).toHaveAmount('-100.00')
+    expect(posting).toHaveCommodity('$', { position: 'pre' })
+  })
+
+  it('parses postings with zero amounts', () => {
+    let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking', amount: '0 AAPL' }] })
+    let [posting] = parseTransaction(input).postings
+
+    expect(posting).toHaveAmount('0')
+    expect(posting).toHaveCommodity('AAPL', { position: 'post' })
+  })
+
+  it('parses postings with no amount', () => {
+    let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking' }] })
+    let [posting] = parseTransaction(input).postings
+
+    expect(posting).not.toHaveAmount()
+    expect(posting).not.toHaveCommodity()
+  })
+
+  it('parses multiple postings', () => {
+    let input = formatTransaction({
+      postings: [
+        { account: 'Assets:Bank:Checking', amount: '$100.00' },
+        { account: 'Expenses:Food', amount: '$50.00' },
+      ],
+    })
+    let { postings } = parseTransaction(input)
+
+    expect(postings).toHaveLength(2)
+  })
+
+  it('parses postings with amounts in different formats', () => {
+    let input = formatTransaction({
+      postings: [
+        { account: 'Assets:Bank:Checking', amount: '$100' },
+        { account: 'Expenses:Food', amount: '€50,25' },
+        { account: 'Liabilities:CreditCard', amount: '30.1 AAPL' },
+      ],
+    })
+    let { postings } = parseTransaction(input)
+    let [first, second, third] = postings
+
+    expect(postings).toHaveLength(3)
+
+    expect(first).toHaveAccountName('Assets:Bank:Checking')
+    expect(first).toHaveAmount('100')
+    expect(first).toHaveCommodity('$', { position: 'pre' })
+
+    expect(second).toHaveAccountName('Expenses:Food')
+    expect(second).toHaveAmount('50,25')
+    expect(second).toHaveCommodity('€', { position: 'pre' })
+
+    expect(third).toHaveAccountName('Liabilities:CreditCard')
+    expect(third).toHaveAmount('30.1')
+    expect(third).toHaveCommodity('AAPL', { position: 'post' })
   })
 })

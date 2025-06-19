@@ -11,6 +11,8 @@ interface TokenMatchers<R = unknown> {
   toHaveDate: (date: string) => R
   toHaveAuxDate: (date: string) => R
   failsToParse: (messageIncludes?: string) => R
+  toHaveAmount: (amount?: string) => R
+  toHaveCommodity: (commodity?: string, opts?: { position: 'pre' | 'post' }) => R
 }
 
 declare module 'vitest' {

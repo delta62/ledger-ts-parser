@@ -408,7 +408,7 @@ export class Parser {
    */
   private expectInteger(): Result<Token<'number'>, ParseError> {
     return this.expect('number').andThen(token => {
-      if (!Number.isInteger(token.value)) {
+      if (!Number.isInteger(parseFloat(token.value))) {
         return Result.err(new ParseError(`Expected integer, but found ${token.text}`, 'INVALID_INTEGER'))
       }
 
