@@ -49,9 +49,9 @@ export class Parser {
 
   public parse(): ParserResult {
     while (this.lexer.hasNext()) {
-      let nextType = this.peekType()!
+      let nextType = this.peek()?.type
 
-      if (['newline', 'ws', 'comment'].includes(nextType)) {
+      if (['newline', 'ws', 'comment'].includes(nextType ?? '')) {
         this.previous = this.next()
         continue
       }
@@ -100,7 +100,7 @@ export class Parser {
     let code: Code | undefined
     let payee: Payee | undefined
 
-    if (this.peekType() === 'equal') {
+    if (this.peekType('equal')) {
       let equal = this.next() as Token<'equal'>
       let date = this.parseDate()
       if (date.isErr()) {
@@ -114,7 +114,7 @@ export class Parser {
       }
     }
 
-    if (this.peekType() === 'ws') {
+    if (this.peekType('ws')) {
       this.skipWhitespace()
 
       let flag = this.skipIf(['bang', 'star'])
@@ -132,7 +132,7 @@ export class Parser {
         this.skipWhitespace()
       }
 
-      if (this.peekType() === 'lparen') {
+      if (this.peekType('lparen')) {
         let parsedCode = this.parseCode()
         if (parsedCode.isErr()) {
           return parsedCode
@@ -160,14 +160,14 @@ export class Parser {
     let comments: Comment[] = []
     let postings: Posting[] = []
 
-    while (this.peekType() === 'ws') {
+    while (this.peekType('ws')) {
       this.next() // Skip whitespace
 
-      if (this.peekType() === 'comment') {
+      if (this.peekType('comment')) {
         let commentToken = this.next() as Token<'comment'>
         comments.push({ type: 'comment', comment: commentToken })
         continue
-      } else if (this.peekType() === 'newline') {
+      } else if (this.peekType('newline')) {
         this.next() // Skip newline
         break
       } else {
@@ -212,23 +212,13 @@ export class Parser {
       }))
   }
 
-  private expectInteger(): Result<Token<'number'>, ParseError> {
-    return this.expect('number').andThen(token => {
-      if (!Number.isInteger(token.value)) {
-        return Result.err(new ParseError(`Expected integer, but found ${token.text}`, 'INVALID_INTEGER'))
-      }
-
-      return Result.ok(token)
-    })
-  }
-
   private parseDate(): Result<DateNode, ParseError> {
-    let parsedDate = Result.all(
+    return Result.all(
       () => this.expectInteger(),
       () => this.expect(['slash', 'hyphen']),
       () => this.expectInteger(),
       (_, sep) => {
-        if (this.peekType() === sep.type) {
+        if (this.peekType(sep.type)) {
           return this.expect(['slash', 'hyphen'])
         } else {
           return Result.ok(undefined)
@@ -241,20 +231,15 @@ export class Parser {
           return Result.ok(undefined)
         }
       }
-    ).andThen(dateFromTokens)
-
-    if (parsedDate.isErr()) {
-      return parsedDate
-    }
-
-    let { raw, parsed } = parsedDate.unwrap()
-
-    return Result.ok({ type: 'date', parsed, raw })
+    ).map(tokens => {
+      let raw = new Group(...tokens.filter(t => t !== undefined))
+      return { type: 'date', raw }
+    })
   }
 
   private parsePosting(): Result<Posting, ParseError> {
     let amount: Amount | undefined
-    let accountName = this.slurpUntil('ws', isBigSpace)
+    let accountName = this.slurpUntil('ws', { and: isBigSpace })
 
     if (accountName.length === 0) {
       return Result.err(
@@ -272,7 +257,7 @@ export class Parser {
     }
 
     this.skipWhitespace()
-    if (this.hasMore() && this.peekType() !== 'newline') {
+    if (this.hasNext() && !this.peekType('newline')) {
       let parsedAmount = this.parseAmount()
       if (parsedAmount.isErr()) {
         return parsedAmount
@@ -289,17 +274,12 @@ export class Parser {
   }
 
   private parseAmount(): Result<Amount, ParseError> {
-    let minus: Token | undefined
-    let amount: Token<'number'> | undefined
     let commodity: Group
     let unitPlacement: Amount['unitPlacement']
+    let amount: Token<'number'> | undefined
+    let minus = this.skipIf('hyphen')
 
-    if (this.peekType() === 'hyphen') {
-      minus = this.next()
-      this.skipWhitespace()
-    }
-
-    if (this.peekType() === 'number') {
+    if (this.peekType('number')) {
       let numberToken = this.next() as Token<'number'>
       unitPlacement = 'post'
       amount = numberToken
@@ -311,8 +291,8 @@ export class Parser {
 
     commodity = this.slurpUntil(['hyphen', 'number'])
 
-    if (!minus && this.peekType() === 'hyphen') {
-      minus = this.next()
+    if (!minus) {
+      minus = this.skipIf('hyphen')
     }
 
     if (!amount) {
@@ -323,13 +303,10 @@ export class Parser {
       amount = parsedAmount.unwrap()
     }
 
-    let sign = minus ? -1 : 1
-    let parsedAmount = amount.value * sign
-
     return Result.ok({
       type: 'amount',
+      minus,
       amount,
-      parsedAmount,
       commodity,
       unitPlacement,
     })
@@ -349,7 +326,7 @@ export class Parser {
   private skipIf<T extends TokenType>(type: T): Token<T> | undefined
   private skipIf<T extends readonly TokenType[]>(types: T): Token<TupleToUnion<T>> | undefined
   private skipIf(types?: TokenType | TokenType[]): Token | undefined {
-    let nextType = this.peekType()
+    let nextType = this.peek()?.type
     if (!nextType) {
       return undefined
     }
@@ -363,8 +340,8 @@ export class Parser {
     return undefined
   }
 
-  private peekType(): TokenType | undefined {
-    return this.lexer.peek()?.type
+  private peekType(type: TokenType): boolean {
+    return this.lexer.peek()?.type === type
   }
 
   private next(): Token | undefined {
@@ -373,7 +350,7 @@ export class Parser {
     return next
   }
 
-  private hasMore(): boolean {
+  private hasNext(): boolean {
     return this.lexer.hasNext()
   }
 
@@ -426,10 +403,24 @@ export class Parser {
   }
 
   /**
+   * Special form of `expect` that expects an integer token. Similar to `expect('number')`, but numeric tokens may not be decimals, NaN, or Infinity.
+   * @returns A Result containing the token if it is an integer, or a ParseError if it is not.
+   */
+  private expectInteger(): Result<Token<'number'>, ParseError> {
+    return this.expect('number').andThen(token => {
+      if (!Number.isInteger(token.value)) {
+        return Result.err(new ParseError(`Expected integer, but found ${token.text}`, 'INVALID_INTEGER'))
+      }
+
+      return Result.ok(token)
+    })
+  }
+
+  /**
    * Skips whitespace tokens in the input stream. This does not include newlines.
    */
   private skipWhitespace() {
-    while (this.peekType() === 'ws') {
+    while (this.peekType('ws')) {
       this.next()
     }
   }
@@ -453,8 +444,9 @@ export class Parser {
    * @returns All tokens consumed until the specified type, newline, or end of
    *    file is encountered
    */
-  private slurpUntil(type: TokenType | TokenType[], predicate: (t: Token) => boolean = ok): Group {
+  private slurpUntil(type: TokenType | TokenType[], opts?: { and: (t: Token) => boolean }): Group {
     let tokens = new Group()
+    let predicate = opts?.and ?? ok
     let next = this.peek()
 
     if (!Array.isArray(type)) {
@@ -470,54 +462,6 @@ export class Parser {
   }
 }
 
-function dateFromTokens(
-  tokens: [
-    Token<'number'>,
-    Token<'hyphen' | 'slash'>,
-    Token<'number'>,
-    Token<'hyphen' | 'slash'> | undefined,
-    Token<'number'> | undefined
-  ]
-): Result<{ raw: Group; parsed: Date }, ParseError> {
-  let parsed: Result<Date, ParseError>
-  let [n1, sep1, n2, , n3] = tokens
-  let raw = new Group(...tokens.filter(t => t !== undefined))
-
-  if (n3) {
-    if (sep1.type === 'hyphen') {
-      // %Y-%m-%d
-      parsed = tryBuildDate(n1.value, n2.value, n3.value)
-    } else if (n1.text.length === 4) {
-      // %Y/%m/%d
-      parsed = tryBuildDate(n1.value, n2.value, n3.value)
-    } else if (n1.text.length === 2) {
-      // %y/%m/%d
-      let year = n1.value < 70 ? 2000 + n1.value : 1900 + n1.value
-      parsed = tryBuildDate(year, n2.value, n3.value)
-    } else {
-      let err = new ParseError('Invalid date format', 'INVALID_DATE', raw.location)
-      parsed = Result.err(err)
-    }
-  } else {
-    if (sep1.type === 'hyphen') {
-      let err = new ParseError('Invalid date format: missing day', 'INVALID_DATE', raw.location)
-      parsed = Result.err(err)
-    } else if (n1.text.length === 4) {
-      // %Y/%m
-      parsed = tryBuildDate(n1.value, n2.value, 1)
-    } else if (n1.text.length === 2) {
-      // %m/%d
-      let year = new Date().getFullYear()
-      parsed = tryBuildDate(year, n1.value, n2.value)
-    } else {
-      let err = new ParseError('Invalid date format', 'INVALID_DATE', raw.location)
-      parsed = Result.err(err)
-    }
-  }
-
-  return parsed.map(parsed => ({ raw, parsed }))
-}
-
 /**
  * Checks if the token is a "big space", which is defined as two or more spaces or a tab. This is important for postings, which must separate account names from amounts in this way
  * @param token The token to check. It is assumed to be a whitespace token.
@@ -525,22 +469,4 @@ function dateFromTokens(
  */
 function isBigSpace(token: Token): boolean {
   return /^ {2,}|\t$/.test(token.text)
-}
-
-function tryBuildDate(y: number, m: number, d: number): Result<Date, ParseError> {
-  if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) {
-    return Result.err(new ParseError(`date components must be integers`, 'INVALID_DATE'))
-  }
-
-  if (m < 1 || m > 12) {
-    return Result.err(new ParseError(`Invalid month: ${m}`, 'INVALID_DATE'))
-  }
-
-  let daysInMonth = new Date(y, m, 0).getDate()
-
-  if (d < 1 || d > daysInMonth) {
-    return Result.err(new ParseError(`Invalid day: ${d}`, 'INVALID_DATE'))
-  }
-
-  return Result.ok(new Date(y, m - 1, d))
 }

@@ -2,8 +2,9 @@ import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
-import { Group, Parser } from '../../src'
+import { Parser } from '../../src'
 import Lexer from '../../src/lexer'
+import { Group } from '../../src/group'
 
 const TMP_DIR = 'ledger-test'
 
@@ -104,11 +105,11 @@ export async function runLedger(posting: Posting): Promise<Comparison> {
     .parse()
     .ast.children.filter(child => child.type === 'transaction')
     .map(child => ({
-      date: child.date.parsed.toISOString().split('T')[0],
+      date: child.date.raw.toString(),
       payee: tokensToString(child.payee?.name),
       account: tokensToString(child.postings[0].account.name),
       commodity: tokensToString(child.postings[0].amount?.commodity),
-      amount: child.postings[0].amount?.parsedAmount ?? -Infinity,
+      amount: parseFloat(child.postings[0].amount?.amount.toString() ?? '0'),
     }))
 
   return {

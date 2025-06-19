@@ -8,8 +8,8 @@ interface TokenMatchers<R = unknown> {
   toHavePayee: (name?: string) => R
   toBeCleared: () => R
   toBePending: () => R
-  toHaveDate: (date: Date) => R
-  toHaveAuxDate: (date: Date) => R
+  toHaveDate: (date: string) => R
+  toHaveAuxDate: (date: string) => R
   failsToParse: (messageIncludes?: string) => R
 }
 

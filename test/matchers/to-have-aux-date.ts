@@ -2,20 +2,20 @@ import { expect } from 'vitest'
 import { Transaction } from '../../src'
 import type { Matcher } from './types'
 
-let toHaveAuxDate: Matcher = (received: Transaction, date: Date) => {
-  let parsed = received.auxDate?.date?.parsed
-  let pass = parsed?.getTime() === date.getTime()
+let toHaveAuxDate: Matcher = (received: Transaction, date: string) => {
+  let parsed = received.auxDate?.date.raw.toString()
+  let pass = parsed === date
 
   let message = () => {
     return pass
       ? `expected transaction not to have aux date "${date}"`
-      : `expected transaction to have aux date "${date}", but got "${received.auxDate?.date.parsed}"`
+      : `expected transaction to have aux date "${date}", but got "${parsed}"`
   }
 
   return {
     pass,
     message,
-    actual: received.date.parsed,
+    actual: parsed,
     expected: date,
   }
 }

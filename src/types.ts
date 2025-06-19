@@ -20,13 +20,12 @@ export interface Payee extends Node<'payee'> {
 }
 
 export interface DateNode extends Node<'date'> {
-  parsed: Date
   raw: Group
 }
 
 export interface Amount extends Node<'amount'> {
   amount: Token<'number'>
-  parsedAmount: number
+  minus?: Token<'hyphen'>
   commodity: Group
   unitPlacement: 'pre' | 'post'
 }
