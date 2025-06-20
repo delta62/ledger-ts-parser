@@ -36,6 +36,7 @@ export class Parser {
   private previous: Token | undefined
   private children: ASTChild[] = []
   private panic = false
+  private indentationLevel = 0
 
   constructor(private lexer: Lexer) {}
 
@@ -110,6 +111,7 @@ export class Parser {
     let cleared: Token<'star'> | undefined
     let code: Code | undefined
     let payee: Payee | undefined
+    let inlineComment: Comment | undefined
 
     if (this.peekType('equal')) {
       let equal = this.next() as Token<'equal'>
@@ -152,7 +154,7 @@ export class Parser {
         this.skipWhitespace()
       }
 
-      let payeeName = this.slurp()
+      let payeeName = this.slurpUntil('ws', { and: isBigSpace })
       let payeeText = payeeName.toString().trim()
 
       if (payeeText) {
@@ -160,6 +162,15 @@ export class Parser {
         if (!this.payees.has(payeeText)) {
           this.payees.add(payeeText, payee.name.location)
         }
+        this.skipWhitespace()
+      }
+
+      if (this.peekType('comment')) {
+        let comment = this.parseComment()
+        if (comment.isErr()) {
+          return comment
+        }
+        inlineComment = comment.unwrap()
       }
     }
 
@@ -190,6 +201,7 @@ export class Parser {
     let tx: Transaction = {
       type: 'transaction',
       date,
+      inlineComment,
       comments,
       auxDate,
       cleared,
@@ -357,6 +369,13 @@ export class Parser {
 
   private next(): Token | undefined {
     let next = this.lexer.next()
+
+    if (next?.type === 'newline') {
+      this.indentationLevel = 0
+    } else if (next?.type === 'ws' && this.previous?.type === 'newline') {
+      this.indentationLevel = next.col + next.text.length - 1
+    }
+
     this.previous = next
     return next
   }

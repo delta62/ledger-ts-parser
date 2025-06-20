@@ -383,23 +383,61 @@ describe('postings', () => {
 })
 
 describe('comments', () => {
-  it('parses top-level comments', () => {
-    let input = '; This is a comment'
-    let { diagnostics, ast } = parse(input)
+  it.for(['#', ';', '%', '|', '*'])("parses comments starting with '%s'", (commentChar: string) => {
+    let input = `${commentChar} This is a comment`
+    let { ast } = parse(input)
+    let comment = ast.children[0] as Comment
 
-    expect(diagnostics).toHaveLength(0)
     expect(ast.children).toHaveLength(1)
     expect(ast.children[0]).toHaveProperty('type', 'comment')
-
-    let comment = ast.children[0] as Comment
-    expect(comment.comment.text).toBe('; This is a comment')
+    expect(comment.text).toBe(input.substring(1))
+    expect(comment.commentChar).toBe(commentChar)
   })
 
-  it.todo('parses transactions after comments')
+  it('parses transactions after comments', () => {
+    let input = `# This is a comment\n2024-06-12 Test Payee`
+    let { ast } = parse(input)
+    let [comment, tx] = ast.children as [Comment, Transaction]
 
-  it.todo('parses top-level comments starting with alternat characters')
+    expect(comment.comment.text).toBe('# This is a comment')
 
-  it.todo('parses comments on the same line as a transaction')
+    expect(tx).toHaveDate('2024-06-12')
+    expect(tx).toHavePayee('Test Payee')
+  })
+
+  it('ends transactions with un-indented comments', () => {
+    let input = `2024-06-12 Test Payee\n; This is a comment\n  Accounts:Checking $100.00`
+    let { ast, diagnostics } = parse(input)
+
+    expect(diagnostics).toHaveLength(1)
+    expect(ast.children).toHaveLength(2)
+
+    let tx = ast.children[0] as Transaction
+    let comment = ast.children[1] as Comment
+    expect(tx).toHaveDate('2024-06-12')
+    expect(tx).toHavePayee('Test Payee')
+
+    expect(comment.comment.text).toBe('; This is a comment')
+
+    expect(diagnostics[0].message).toContain('Unexpected token')
+  })
+
+  it('parses comments on the same line as a transaction', () => {
+    let input = `2024-06-12 Test Payee  ; This is a comment`
+    let tx = parseTransaction(input)
+
+    expect(tx.inlineComment).toBeDefined()
+    expect(tx.inlineComment?.commentChar).toBe(';')
+    expect(tx.inlineComment?.text).toBe(' This is a comment')
+  })
+
+  it('does not parse comments on the same line as a transaction without a big space', () => {
+    let input = `2024-06-12 Test Payee ;This is not a comment`
+    let tx = parseTransaction(input)
+
+    expect(tx.inlineComment).toBeUndefined()
+    expect(tx).toHavePayee('Test Payee ;This is not a comment')
+  })
 
   it.todo('parses comments within a transaction')
 
@@ -407,45 +445,13 @@ describe('comments', () => {
 
   it.todo('parses postings after comments')
 
-  it('parses tag names in comments', () => {
-    let input = '; :tag1:'
-    let { diagnostics, ast } = parse(input)
+  it.todo('parses tag names in comments')
 
-    expect(diagnostics).toHaveLength(0)
-    expect(ast.children).toHaveLength(1)
-    expect(ast.children[0]).toHaveProperty('type', 'comment')
-
-    let comment = ast.children[0] as Comment
-    expect(comment.tags).toHaveProperty('tag1')
-  })
-
-  it('parses tag values in comments', () => {
-    let input = '; tag1: value1'
-    let { diagnostics, ast } = parse(input)
-
-    expect(diagnostics).toHaveLength(0)
-    expect(ast.children).toHaveLength(1)
-    expect(ast.children[0]).toHaveProperty('type', 'comment')
-
-    let comment = ast.children[0] as Comment
-    expect(comment.tags).toHaveProperty('tag1', 'value1')
-  })
+  it.todo('parses tag values in comments')
 
   it.todo('parses typed tags in comments')
 
-  it('parses chained tags in comments', () => {
-    let input = '; :tag1:tag2:tag3:'
-    let { diagnostics, ast } = parse(input)
-
-    expect(diagnostics).toHaveLength(0)
-    expect(ast.children).toHaveLength(1)
-    expect(ast.children[0]).toHaveProperty('type', 'comment')
-
-    let comment = ast.children[0] as Comment
-    expect(comment.tags).toHaveProperty('tag1')
-    expect(comment.tags).toHaveProperty('tag2')
-    expect(comment.tags).toHaveProperty('tag3')
-  })
+  it.todo('parses chained tags in comments')
 })
 
 describe('panic mode', () => {

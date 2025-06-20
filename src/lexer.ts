@@ -3,7 +3,7 @@ import moo from 'moo'
 const LEDGER_RULES = {
   newline: { match: /\r?\n/, lineBreaks: true },
   ws: /[ \t]+/,
-  comment: /(?:(?:^;)|(?:^[;#%*|]))[^\n]*/,
+  comment: /(?:(?:;[^\n]*)|(?:^[;#%*|]))[^\n]*/,
   string: /"[^"\n]*"/,
   number: /\d+(?:[.,]\d+)*(?:[.,]\d+)?/,
   equal: /=/,
