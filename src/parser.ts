@@ -36,7 +36,6 @@ export class Parser {
   private previous: Token | undefined
   private children: ASTChild[] = []
   private panic = false
-  private indentationLevel = 0
 
   constructor(private lexer: Lexer) {}
 
@@ -44,7 +43,7 @@ export class Parser {
     while (this.lexer.hasNext()) {
       let nextType: TokenType = this.peek()!.type
 
-      if (['newline', 'ws'].includes(nextType ?? '')) {
+      if (['newline', 'ws'].includes(nextType)) {
         this.previous = this.next()
         continue
       }
@@ -111,7 +110,7 @@ export class Parser {
     let cleared: Token<'star'> | undefined
     let code: Code | undefined
     let payee: Payee | undefined
-    let inlineComment: Comment | undefined
+    let comments: Comment[] = []
 
     if (this.peekType('equal')) {
       let equal = this.next() as Token<'equal'>
@@ -154,7 +153,12 @@ export class Parser {
         this.skipWhitespace()
       }
 
-      let payeeName = this.slurpUntil('ws', { and: isBigSpace })
+      let payeeName: Group = this.slurpUntil('ws', { and: isBigSpace })
+      while (this.hasNext() && !this.peekType('newline') && !this.peekType('comment')) {
+        let nextChunk = this.slurpUntil('ws', { and: isBigSpace })
+        payeeName = payeeName.concat(nextChunk)
+      }
+
       let payeeText = payeeName.toString().trim()
 
       if (payeeText) {
@@ -170,7 +174,7 @@ export class Parser {
         if (comment.isErr()) {
           return comment
         }
-        inlineComment = comment.unwrap()
+        comments.push(comment.unwrap())
       }
     }
 
@@ -179,13 +183,17 @@ export class Parser {
       return newline
     }
 
-    let comments: Comment[] = []
     let postings: Posting[] = []
 
     while (this.skipIf('ws')) {
       if (this.peekType('comment')) {
         let comment = this.parseComment().unwrap()
-        comments.push(comment)
+        let lastPosting = postings[postings.length - 1]
+        if (lastPosting) {
+          lastPosting.comments.push(comment)
+        } else {
+          comments.push(comment)
+        }
         continue
       } else if (this.skipIf('newline')) {
         break
@@ -201,7 +209,6 @@ export class Parser {
     let tx: Transaction = {
       type: 'transaction',
       date,
-      inlineComment,
       comments,
       auxDate,
       cleared,
@@ -369,13 +376,6 @@ export class Parser {
 
   private next(): Token | undefined {
     let next = this.lexer.next()
-
-    if (next?.type === 'newline') {
-      this.indentationLevel = 0
-    } else if (next?.type === 'ws' && this.previous?.type === 'newline') {
-      this.indentationLevel = next.col + next.text.length - 1
-    }
-
     this.previous = next
     return next
   }

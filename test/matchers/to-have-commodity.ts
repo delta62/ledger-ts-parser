@@ -1,6 +1,6 @@
 import { expect } from 'vitest'
 import { Posting } from '../../src'
-import type { Matcher } from './types'
+import type { Matcher } from '../types'
 
 export type CommodityPosition = 'pre' | 'post'
 

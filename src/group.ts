@@ -1,5 +1,5 @@
 import type { Token } from './lexer'
-import type { Location } from './types'
+import type { Location } from './location'
 
 export class Group {
   private tokens: Token[]
@@ -27,6 +27,15 @@ export class Group {
 
   public push(token: Token) {
     this.tokens.push(token)
+  }
+
+  public concat(...groups: Group[]) {
+    let newGroup = new Group(...this.tokens)
+    for (let group of groups) {
+      newGroup.tokens.push(...group.tokens)
+    }
+
+    return newGroup
   }
 
   public toString() {

@@ -2,7 +2,7 @@ import { expect } from 'vitest'
 import { Lexer } from '../../src/lexer'
 import { Parser } from '../../src/parser'
 
-export function failsToParse(received: string, messageIncludes = '') {
+export function failsToParse(received: string, messageIncludes: RegExp) {
   let lexer = new Lexer(received)
   let parser = new Parser(lexer)
   let result = parser.parse()
@@ -12,7 +12,7 @@ export function failsToParse(received: string, messageIncludes = '') {
   if (parseSuccess) {
     pass = false
   } else {
-    pass = result.diagnostics.some(d => d.message.includes(messageIncludes))
+    pass = result.diagnostics.some(diag => messageIncludes.test(diag.message))
   }
 
   let message = () => {

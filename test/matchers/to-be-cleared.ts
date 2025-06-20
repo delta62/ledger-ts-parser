@@ -1,6 +1,6 @@
 import { expect } from 'vitest'
 import type { Transaction } from '../../src'
-import type { Matcher } from './types'
+import type { Matcher } from '../types'
 
 let toBeCleared: Matcher = (received: Transaction) => {
   let pass = !!received.cleared

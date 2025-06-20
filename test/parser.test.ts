@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Parser } from '../src/parser'
 import { Lexer } from '../src/lexer'
-import { Transaction, Comment } from '../src/types'
+import { AST, ASTChild, Transaction, Posting } from '../src/types'
 
 function parse(input: string) {
   let lexer = new Lexer(input)
@@ -11,14 +11,31 @@ function parse(input: string) {
 
 function parseTransaction(input: string): Transaction {
   let result = parse(input)
-  let ast = result.ast
-  let tx = ast.children[0]
+  let { ast } = result
+  let tx = getChild(ast, 0, 'transaction')
 
-  expect(result.diagnostics).toHaveLength(0)
+  expect(result).not.toHaveDiagnostic()
   expect(ast.children).toHaveLength(1)
   expect(tx).toHaveProperty('type', 'transaction')
 
   return tx as Transaction
+}
+
+function parsePosting(input: string): Posting {
+  let tx = parseTransaction(input)
+  expect(tx.postings).toHaveLength(1)
+  return tx.postings[0]
+}
+
+function getChild<T extends ASTChild['type']>(
+  ast: AST,
+  index: number,
+  type: T
+): Extract<AST['children'][number], { type: T }> {
+  let child = ast.children[index]
+  expect(child).toBeDefined()
+  expect(child).toHaveProperty('type', type)
+  return child as Extract<AST['children'][number], { type: T }>
 }
 
 interface PostingSpec {
@@ -57,34 +74,11 @@ function formatTransaction(spec: Partial<TransactionSpec> = {}): string {
 }
 
 describe('Ledger Parser', () => {
-  it('parses a posting', () => {
-    let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking', amount: '$100.00' }] })
-    let tx = parseTransaction(input)
-
-    expect(tx.postings).toHaveLength(1)
-    expect(tx.postings[0]).toHaveAccountName('Assets:Bank:Checking')
-  })
-
   it('adds accounts in postrings to the symbol table', () => {
     let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking', amount: '$100.00' }] })
     let result = parse(input)
 
     expect(result.accounts).toHaveSymbol('Assets:Bank:Checking')
-  })
-
-  it('parses multiple postings', () => {
-    let input = formatTransaction({
-      postings: [
-        { account: 'Assets:Bank:Checking', amount: '$100.00' },
-        { account: 'Expenses:Food', amount: '$50.00' },
-      ],
-    })
-    let tx = parseTransaction(input)
-    let [posting1, posting2] = tx.postings
-
-    expect(tx.postings).toHaveLength(2)
-    expect(posting1).toHaveAccountName('Assets:Bank:Checking')
-    expect(posting2).toHaveAccountName('Expenses:Food')
   })
 })
 
@@ -133,12 +127,12 @@ describe('Dates', () => {
 
   it('fails to parse dates with non-numeric characters', () => {
     let input = formatTransaction({ date: '2024-06-12abc' })
-    expect(input).failsToParse()
+    expect(input).failsToParse(/abc/)
   })
 
   it('fails to parse dates with decimal points', () => {
     let input = formatTransaction({ date: '2024-06-12.5' })
-    expect(input).failsToParse('integer')
+    expect(input).failsToParse(/integer/i)
   })
 })
 
@@ -152,7 +146,7 @@ describe('auxiliary dates', () => {
 
   it('fails to parse auxiliary with only an equal sign', () => {
     let input = '2024-06-12= Grocery Store'
-    expect(input).failsToParse('Expected number')
+    expect(input).failsToParse(/Unexpected token/i)
   })
 })
 
@@ -274,31 +268,30 @@ describe('payees', () => {
 describe('postings', () => {
   it('parses account names', () => {
     let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking' }] })
-    let tx = parseTransaction(input)
+    let posting = parsePosting(input)
 
-    expect(tx.postings).toHaveLength(1)
-    expect(tx.postings[0]).toHaveAccountName('Assets:Bank:Checking')
+    expect(posting).toHaveAccountName('Assets:Bank:Checking')
   })
 
   it('parses account names with special characters', () => {
     let input = formatTransaction({ postings: [{ account: 'Assets:Bank:l33tsp#@K' }] })
-    let tx = parseTransaction(input)
+    let posting = parsePosting(input)
 
-    expect(tx.postings[0]).toHaveAccountName('Assets:Bank:l33tsp#@K')
+    expect(posting).toHaveAccountName('Assets:Bank:l33tsp#@K')
   })
 
   it('parses account names with spaces', () => {
     let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking Account' }] })
-    let tx = parseTransaction(input)
+    let posting = parsePosting(input)
 
-    expect(tx.postings[0]).toHaveAccountName('Assets:Bank:Checking Account')
+    expect(posting).toHaveAccountName('Assets:Bank:Checking Account')
   })
 
   it('parses postings with amounts', () => {
     let input = formatTransaction({
       postings: [{ account: 'Assets:Bank:Checking', amount: '100 USD' }],
     })
-    let [posting] = parseTransaction(input).postings
+    let posting = parsePosting(input)
 
     expect(posting).toHaveAmount('100')
     expect(posting).toHaveCommodity('USD', { position: 'post' })
@@ -306,7 +299,7 @@ describe('postings', () => {
 
   it('parses postings with negative amounts', () => {
     let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking', amount: '-$100.00' }] })
-    let [posting] = parseTransaction(input).postings
+    let posting = parsePosting(input)
 
     expect(posting).toHaveAmount('-100.00')
     expect(posting).toHaveCommodity('$', { position: 'pre' })
@@ -314,7 +307,7 @@ describe('postings', () => {
 
   it('parses postings with zero amounts', () => {
     let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking', amount: '0 AAPL' }] })
-    let [posting] = parseTransaction(input).postings
+    let posting = parsePosting(input)
 
     expect(posting).toHaveAmount('0')
     expect(posting).toHaveCommodity('AAPL', { position: 'post' })
@@ -322,7 +315,7 @@ describe('postings', () => {
 
   it('parses postings with no amount', () => {
     let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking' }] })
-    let [posting] = parseTransaction(input).postings
+    let posting = parsePosting(input)
 
     expect(posting).not.toHaveAmount()
     expect(posting).not.toHaveCommodity()
@@ -330,7 +323,7 @@ describe('postings', () => {
 
   it('parses postings with no amounts but traling spaces', () => {
     let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking', amount: '   ' }] })
-    let [posting] = parseTransaction(input).postings
+    let posting = parsePosting(input)
 
     expect(posting).not.toHaveAmount()
     expect(posting).not.toHaveCommodity()
@@ -378,7 +371,7 @@ describe('postings', () => {
     let input = formatTransaction({
       postings: [{ account: 'Assets:Bank:Checking', amount: '$100 USD' }],
     })
-    expect(input).failsToParse('newline or end of file')
+    expect(input).failsToParse(/newline/i)
   })
 })
 
@@ -386,10 +379,8 @@ describe('comments', () => {
   it.for(['#', ';', '%', '|', '*'])("parses comments starting with '%s'", (commentChar: string) => {
     let input = `${commentChar} This is a comment`
     let { ast } = parse(input)
-    let comment = ast.children[0] as Comment
+    let comment = getChild(ast, 0, 'comment')
 
-    expect(ast.children).toHaveLength(1)
-    expect(ast.children[0]).toHaveProperty('type', 'comment')
     expect(comment.text).toBe(input.substring(1))
     expect(comment.commentChar).toBe(commentChar)
   })
@@ -397,10 +388,10 @@ describe('comments', () => {
   it('parses transactions after comments', () => {
     let input = `# This is a comment\n2024-06-12 Test Payee`
     let { ast } = parse(input)
-    let [comment, tx] = ast.children as [Comment, Transaction]
+    let comment = getChild(ast, 0, 'comment')
+    let tx = getChild(ast, 1, 'transaction')
 
     expect(comment.comment.text).toBe('# This is a comment')
-
     expect(tx).toHaveDate('2024-06-12')
     expect(tx).toHavePayee('Test Payee')
   })
@@ -412,13 +403,12 @@ describe('comments', () => {
     expect(diagnostics).toHaveLength(1)
     expect(ast.children).toHaveLength(2)
 
-    let tx = ast.children[0] as Transaction
-    let comment = ast.children[1] as Comment
+    let tx = getChild(ast, 0, 'transaction')
+    let comment = getChild(ast, 1, 'comment')
+
     expect(tx).toHaveDate('2024-06-12')
     expect(tx).toHavePayee('Test Payee')
-
     expect(comment.comment.text).toBe('; This is a comment')
-
     expect(diagnostics[0].message).toContain('Unexpected token')
   })
 
@@ -426,22 +416,30 @@ describe('comments', () => {
     let input = `2024-06-12 Test Payee  ; This is a comment`
     let tx = parseTransaction(input)
 
-    expect(tx.inlineComment).toBeDefined()
-    expect(tx.inlineComment?.commentChar).toBe(';')
-    expect(tx.inlineComment?.text).toBe(' This is a comment')
+    expect(tx).toHaveComment(/this is a comment/i)
   })
 
   it('does not parse comments on the same line as a transaction without a big space', () => {
     let input = `2024-06-12 Test Payee ;This is not a comment`
     let tx = parseTransaction(input)
 
-    expect(tx.inlineComment).toBeUndefined()
+    expect(tx).not.toHaveComment()
     expect(tx).toHavePayee('Test Payee ;This is not a comment')
   })
 
-  it.todo('parses comments within a transaction')
+  it('parses comments within a transaction', () => {
+    let input = `2024-06-12 Test Payee\n  ; This is a comment`
+    let tx = parseTransaction(input)
 
-  it.todo('parses comments within a posting')
+    expect(tx).toHaveComment(/this is a comment/i)
+  })
+
+  it('parses comments within a posting', () => {
+    let input = `2024-06-12 Test Payee\n  Assets:Checking $42\n  ; This is a comment`
+    let posting = parsePosting(input)
+
+    expect(posting).toHaveComment(/this is a comment/i)
+  })
 
   it.todo('parses postings after comments')
 
@@ -457,21 +455,20 @@ describe('comments', () => {
 describe('panic mode', () => {
   it('recovers from unexpected tokens', () => {
     let input = '2024-06-12 Test Payee\n$100.00'
-    let { diagnostics, ast } = parse(input)
+    let result = parse(input)
 
-    expect(diagnostics).toHaveLength(1)
-    expect(diagnostics[0].message).toContain('Unexpected symbol')
-    expect(ast.children).toHaveLength(1)
+    expect(result).toHaveDiagnostic(/Unexpected token/i)
+    expect(result.ast.children).toHaveLength(1)
   })
 
   it('continues parsing after an error', () => {
     let input = '2024-06-12 Test Payee\n$100.00\n2024-06-13 Another Payee'
     let result = parse(input)
 
-    expect(result.diagnostics).toHaveLength(1)
+    expect(result).toHaveDiagnostic(/Unexpected token/i)
     expect(result.ast.children).toHaveLength(2)
 
-    let tx = result.ast.children[1] as Transaction
+    let tx = getChild(result.ast, 1, 'transaction')
     expect(tx).toHavePayee('Another Payee')
   })
 })

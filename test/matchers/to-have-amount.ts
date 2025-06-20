@@ -1,6 +1,6 @@
 import { expect } from 'vitest'
 import type { Posting } from '../../src'
-import type { Matcher } from './types'
+import type { Matcher } from '../types'
 
 let toHaveAmount: Matcher = (received: Posting, amount?: string) => {
   if (amount === undefined) {

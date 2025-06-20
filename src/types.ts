@@ -50,7 +50,6 @@ export interface Transaction extends Node<'transaction'> {
   pending?: Token<'bang'>
   code?: Code
   payee?: Payee
-  inlineComment?: Comment
   comments: Comment[]
   postings: Posting[]
 }

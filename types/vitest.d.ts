@@ -10,9 +10,11 @@ interface TokenMatchers<R = unknown> {
   toBePending: () => R
   toHaveDate: (date: string) => R
   toHaveAuxDate: (date: string) => R
-  failsToParse: (messageIncludes?: string) => R
+  failsToParse: (messageIncludes: RegExp) => R
   toHaveAmount: (amount?: string) => R
   toHaveCommodity: (commodity?: string, opts?: { position: 'pre' | 'post' }) => R
+  toHaveComment: (matching?: RegExp) => R
+  toHaveDiagnostic: (matching?: RegExp) => R
 }
 
 declare module 'vitest' {
