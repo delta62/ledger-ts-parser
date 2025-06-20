@@ -6,7 +6,6 @@ import {
   Transaction,
   AST,
   ASTChild,
-  Location,
   DateNode,
   Payee,
   AuxDate,
@@ -18,17 +17,10 @@ import {
 } from './types'
 import { Group } from './group'
 import { ok } from './util'
+import { Location, getLocation, defaultLocation } from './location'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TupleToUnion<T extends readonly any[]> = T[number]
-
-function getLocation(token: Token): Location {
-  return {
-    line: token.line,
-    column: token.col,
-    offset: token.offset,
-  }
-}
 
 export interface ParserResult {
   ast: AST
@@ -49,9 +41,9 @@ export class Parser {
 
   public parse(): ParserResult {
     while (this.lexer.hasNext()) {
-      let nextType = this.peek()?.type
+      let nextType: TokenType = this.peek()!.type
 
-      if (['newline', 'ws', 'comment'].includes(nextType ?? '')) {
+      if (['newline', 'ws'].includes(nextType ?? '')) {
         this.previous = this.next()
         continue
       }
@@ -70,12 +62,12 @@ export class Parser {
         case 'number':
           this.tryParse(this.parseTransaction.bind(this))
           break
+        case 'comment':
+          this.tryParse(this.parseComment.bind(this))
+          break
         default:
-          throw new ParseError(
-            `Unexpected ${nextType} (text=${this.peek()?.text})`,
-            'UNEXPECTED_TOKEN',
-            this.getPreviousLocation()
-          )
+          this.panic = true
+          this.diagnostics.push(ParseError.unexpectedToken(this.next()!))
       }
     }
 
@@ -85,6 +77,25 @@ export class Parser {
       diagnostics: this.diagnostics,
       payees: this.payees,
     }
+  }
+
+  private parseComment(): Result<Comment, ParseError> {
+    let commentToken = this.expect('comment')
+    return commentToken.map(comment => {
+      let commentChar = comment.text[0]
+      let text = comment.text.slice(1)
+      let tags: Record<string, string | undefined> = {}
+      let typedTags: Record<string, unknown> = {}
+
+      return {
+        type: 'comment',
+        comment,
+        commentChar,
+        text,
+        tags,
+        typedTags,
+      }
+    })
   }
 
   private parseTransaction(): Result<Transaction, ParseError> {
@@ -160,15 +171,12 @@ export class Parser {
     let comments: Comment[] = []
     let postings: Posting[] = []
 
-    while (this.peekType('ws')) {
-      this.next() // Skip whitespace
-
+    while (this.skipIf('ws')) {
       if (this.peekType('comment')) {
-        let commentToken = this.next() as Token<'comment'>
-        comments.push({ type: 'comment', comment: commentToken })
+        let comment = this.parseComment().unwrap()
+        comments.push(comment)
         continue
-      } else if (this.peekType('newline')) {
-        this.next() // Skip newline
+      } else if (this.skipIf('newline')) {
         break
       } else {
         let posting = this.parsePosting()
@@ -265,7 +273,10 @@ export class Parser {
       amount = parsedAmount.unwrap()
     }
 
-    this.newlineOrEof().unwrap()
+    let endOfLine = this.newlineOrEof()
+    if (endOfLine.isErr()) {
+      return endOfLine
+    }
 
     // TODO: comments
     let comments: Comment[] = []
@@ -358,10 +369,11 @@ export class Parser {
     return this.lexer.peek()
   }
 
-  private getPreviousLocation(): Location | undefined {
+  private getPreviousLocation(): Location {
     if (this.previous) {
       return getLocation(this.previous)
     }
+    return defaultLocation()
   }
 
   private expect<T extends TokenType>(type: T): Result<Token<T>, ParseError>
@@ -374,15 +386,12 @@ export class Parser {
     }
 
     if (!next) {
-      return Result.err(
-        new ParseError(`Expected ${type}, but reached end of input`, 'UNEXPECTED_EOF', this.getPreviousLocation())
-      )
+      let location = this.getPreviousLocation() ?? defaultLocation()
+      return Result.err(ParseError.unexpectedEOF(location, type))
     }
 
     if (!type.includes(next.type)) {
-      return Result.err(
-        new ParseError(`Expected ${type}, but found ${next.type}`, 'UNEXPECTED_TOKEN', this.getPreviousLocation())
-      )
+      return Result.err(ParseError.unexpectedToken(next, type))
     }
 
     return Result.ok(next)
@@ -394,12 +403,7 @@ export class Parser {
       return Result.ok(undefined)
     }
 
-    let err = new ParseError(
-      `Expected newline or end of file, but found ${next.type}`,
-      'UNEXPECTED_TOKEN',
-      getLocation(next)
-    )
-    return Result.err(err)
+    return Result.err(ParseError.unexpectedToken(next, 'newline'))
   }
 
   /**

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Parser } from '../src/parser'
 import { Lexer } from '../src/lexer'
-import { Transaction } from '../src/types'
+import { Transaction, Comment } from '../src/types'
 
 function parse(input: string) {
   let lexer = new Lexer(input)
@@ -328,6 +328,14 @@ describe('postings', () => {
     expect(posting).not.toHaveCommodity()
   })
 
+  it('parses postings with no amounts but traling spaces', () => {
+    let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking', amount: '   ' }] })
+    let [posting] = parseTransaction(input).postings
+
+    expect(posting).not.toHaveAmount()
+    expect(posting).not.toHaveCommodity()
+  })
+
   it('parses multiple postings', () => {
     let input = formatTransaction({
       postings: [
@@ -364,5 +372,100 @@ describe('postings', () => {
     expect(third).toHaveAccountName('Liabilities:CreditCard')
     expect(third).toHaveAmount('30.1')
     expect(third).toHaveCommodity('AAPL', { position: 'post' })
+  })
+
+  it('fails to parse postings with double commodities', () => {
+    let input = formatTransaction({
+      postings: [{ account: 'Assets:Bank:Checking', amount: '$100 USD' }],
+    })
+    expect(input).failsToParse('newline or end of file')
+  })
+})
+
+describe('comments', () => {
+  it('parses top-level comments', () => {
+    let input = '; This is a comment'
+    let { diagnostics, ast } = parse(input)
+
+    expect(diagnostics).toHaveLength(0)
+    expect(ast.children).toHaveLength(1)
+    expect(ast.children[0]).toHaveProperty('type', 'comment')
+
+    let comment = ast.children[0] as Comment
+    expect(comment.comment.text).toBe('; This is a comment')
+  })
+
+  it.todo('parses transactions after comments')
+
+  it.todo('parses top-level comments starting with alternat characters')
+
+  it.todo('parses comments on the same line as a transaction')
+
+  it.todo('parses comments within a transaction')
+
+  it.todo('parses comments within a posting')
+
+  it.todo('parses postings after comments')
+
+  it('parses tag names in comments', () => {
+    let input = '; :tag1:'
+    let { diagnostics, ast } = parse(input)
+
+    expect(diagnostics).toHaveLength(0)
+    expect(ast.children).toHaveLength(1)
+    expect(ast.children[0]).toHaveProperty('type', 'comment')
+
+    let comment = ast.children[0] as Comment
+    expect(comment.tags).toHaveProperty('tag1')
+  })
+
+  it('parses tag values in comments', () => {
+    let input = '; tag1: value1'
+    let { diagnostics, ast } = parse(input)
+
+    expect(diagnostics).toHaveLength(0)
+    expect(ast.children).toHaveLength(1)
+    expect(ast.children[0]).toHaveProperty('type', 'comment')
+
+    let comment = ast.children[0] as Comment
+    expect(comment.tags).toHaveProperty('tag1', 'value1')
+  })
+
+  it.todo('parses typed tags in comments')
+
+  it('parses chained tags in comments', () => {
+    let input = '; :tag1:tag2:tag3:'
+    let { diagnostics, ast } = parse(input)
+
+    expect(diagnostics).toHaveLength(0)
+    expect(ast.children).toHaveLength(1)
+    expect(ast.children[0]).toHaveProperty('type', 'comment')
+
+    let comment = ast.children[0] as Comment
+    expect(comment.tags).toHaveProperty('tag1')
+    expect(comment.tags).toHaveProperty('tag2')
+    expect(comment.tags).toHaveProperty('tag3')
+  })
+})
+
+describe('panic mode', () => {
+  it('recovers from unexpected tokens', () => {
+    let input = '2024-06-12 Test Payee\n$100.00'
+    let { diagnostics, ast } = parse(input)
+
+    expect(diagnostics).toHaveLength(1)
+    expect(diagnostics[0].message).toContain('Unexpected symbol')
+    expect(ast.children).toHaveLength(1)
+  })
+
+  it('continues parsing after an error', () => {
+    let input = '2024-06-12 Test Payee\n$100.00\n2024-06-13 Another Payee'
+    let result = parse(input)
+
+    expect(result.diagnostics).toHaveLength(1)
+    expect(result.ast.children).toHaveLength(2)
+
+    let tx = result.ast.children[1] as Transaction
+    expect(tx).toHavePayee('Another Payee')
   })
 })

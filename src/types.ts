@@ -5,12 +5,6 @@ export interface Node<T> {
   type: T
 }
 
-export interface Location {
-  line: number
-  column: number
-  offset: number
-}
-
 export interface AccountRef extends Node<'accountRef'> {
   name: Group
 }
@@ -32,6 +26,10 @@ export interface Amount extends Node<'amount'> {
 
 export interface Comment extends Node<'comment'> {
   comment: Token<'comment'>
+  commentChar: string
+  text: string
+  tags: Record<string, string | undefined>
+  typedTags: Record<string, unknown>
 }
 
 export interface AuxDate extends Node<'auxDate'> {
@@ -73,7 +71,7 @@ export interface SubDirective extends Node<'subDirective'> {
   value?: Group
 }
 
-export type ASTChild = Transaction | Directive
+export type ASTChild = Transaction | Directive | Comment
 
 export interface AST {
   children: ASTChild[]
