@@ -14,6 +14,8 @@ import {
   Code,
   Amount,
   AccountRef,
+  Directive,
+  SubDirective,
 } from './types'
 import { Group } from './group'
 import { ok } from './util'
@@ -43,7 +45,7 @@ export class Parser {
     while (this.lexer.hasNext()) {
       let nextType: TokenType = this.peek()!.type
 
-      if (['newline', 'ws'].includes(nextType)) {
+      if (this.peekType(['newline', 'ws'])) {
         this.previous = this.next()
         continue
       }
@@ -58,12 +60,21 @@ export class Parser {
         }
       }
 
+      if (this.previous?.type === 'ws') {
+        this.panic = true
+        this.diagnostics.push(ParseError.unexpectedToken(this.previous))
+        this.next()
+      }
+
       switch (nextType) {
         case 'number':
           this.tryParse(this.parseTransaction.bind(this))
           break
         case 'comment':
           this.tryParse(this.parseComment.bind(this))
+          break
+        case 'identifier':
+          this.tryParse(this.parseDirective.bind(this))
           break
         default:
           this.panic = true
@@ -95,6 +106,70 @@ export class Parser {
         tags,
         typedTags,
       }
+    })
+  }
+
+  private parseDirective(): Result<Directive, ParseError> {
+    return this.expect('identifier').andThen(identifier => {
+      switch (identifier.text) {
+        default:
+          return this.parseStandardDirective(identifier)
+      }
+    })
+  }
+
+  private parseStandardDirective(name: Token<'identifier'>): Result<Directive, ParseError> {
+    let arg: Group | undefined
+
+    this.skipWhitespace()
+
+    if (this.hasNext() && !this.peekType('newline')) {
+      arg = this.slurp()
+    }
+
+    return this.newlineOrEof()
+      .andThen(this.parseSubdirectives.bind(this))
+      .map(subDirectives => ({
+        type: 'directive',
+        name,
+        arg,
+        subDirectives,
+      }))
+  }
+
+  private parseSubdirectives(): Result<SubDirective[], ParseError> {
+    let subDirectives: SubDirective[] = []
+
+    while (this.skipIf('ws')) {
+      let next = this.parseSubdirective()
+      if (next.isErr()) {
+        return next
+      }
+      subDirectives.push(next.unwrap())
+    }
+
+    return Result.ok(subDirectives)
+  }
+
+  private parseSubdirective(): Result<SubDirective, ParseError> {
+    return this.expect('identifier').andThen(key => {
+      this.skipWhitespace()
+
+      let value: Group | undefined
+      if (this.hasNext() && !this.peekType('newline')) {
+        value = this.slurpUntil('newline')
+      }
+
+      let end = this.newlineOrEof()
+      if (end.isErr()) {
+        return end
+      }
+
+      return Result.ok({
+        type: 'subDirective',
+        key,
+        value,
+      })
     })
   }
 
@@ -153,7 +228,7 @@ export class Parser {
         this.skipWhitespace()
       }
 
-      let payeeName: Group = this.slurpUntil('ws', { and: isBigSpace })
+      let payeeName = this.slurpUntil('ws', { and: isBigSpace })
       while (this.hasNext() && !this.peekType('newline') && !this.peekType('comment')) {
         let nextChunk = this.slurpUntil('ws', { and: isBigSpace })
         payeeName = payeeName.concat(nextChunk)
@@ -370,8 +445,9 @@ export class Parser {
     return undefined
   }
 
-  private peekType(type: TokenType): boolean {
-    return this.lexer.peek()?.type === type
+  private peekType(type: TokenType | TokenType[]): boolean {
+    let typeArray: (TokenType | undefined)[] = Array.isArray(type) ? type : [type]
+    return typeArray.includes(this.lexer.peek()?.type)
   }
 
   private next(): Token | undefined {
@@ -432,7 +508,9 @@ export class Parser {
   private expectInteger(): Result<Token<'number'>, ParseError> {
     return this.expect('number').andThen(token => {
       if (!Number.isInteger(parseFloat(token.value))) {
-        return Result.err(new ParseError(`Expected integer, but found ${token.text}`, 'INVALID_INTEGER'))
+        let location = getLocation(token)
+        let message = `Expected integer, but found ${token.text}`
+        return Result.err(new ParseError(message, 'INVALID_INTEGER', location))
       }
 
       return Result.ok(token)

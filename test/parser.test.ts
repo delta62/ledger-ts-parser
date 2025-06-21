@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Parser } from '../src/parser'
 import { Lexer } from '../src/lexer'
-import { AST, ASTChild, Transaction, Posting } from '../src/types'
+import { AST, ASTChild, Transaction, Posting, Directive, SubDirective } from '../src/types'
 
 function parse(input: string) {
   let lexer = new Lexer(input)
@@ -27,6 +27,18 @@ function parsePosting(input: string): Posting {
   return tx.postings[0]
 }
 
+function parseDirective(input: string): Directive {
+  let result = parse(input)
+  let { ast } = result
+  expect(result).not.toHaveDiagnostic()
+  expect(ast.children).toHaveLength(1)
+
+  let directive = getChild(ast, 0, 'directive')
+  expect(directive).toHaveProperty('type', 'directive')
+
+  return directive
+}
+
 function getChild<T extends ASTChild['type']>(
   ast: AST,
   index: number,
@@ -36,6 +48,12 @@ function getChild<T extends ASTChild['type']>(
   expect(child).toBeDefined()
   expect(child).toHaveProperty('type', type)
   return child as Extract<AST['children'][number], { type: T }>
+}
+
+function getSubDirective(directive: Directive, key: string): SubDirective {
+  let subDirective = directive.subDirectives.find(d => d.key.toString() === key)
+  expect(subDirective).toBeDefined()
+  return subDirective!
 }
 
 interface PostingSpec {
@@ -79,6 +97,11 @@ describe('Ledger Parser', () => {
     let result = parse(input)
 
     expect(result.accounts).toHaveSymbol('Assets:Bank:Checking')
+  })
+
+  it('fails to parse transactions beginning with whitespace', () => {
+    let input = '  2024-06-12 Test Payee'
+    expect(input).failsToParse(/Unexpected token/i)
   })
 })
 
@@ -470,5 +493,64 @@ describe('panic mode', () => {
 
     let tx = getChild(result.ast, 1, 'transaction')
     expect(tx).toHavePayee('Another Payee')
+  })
+})
+
+describe('directives', () => {
+  it('parses a directive without an argument', () => {
+    let input = 'year'
+    let { ast } = parse(input)
+    let directive = getChild(ast, 0, 'directive')
+
+    expect(directive.name.toString()).toBe('year')
+    expect(directive.arg).toBeUndefined()
+  })
+
+  it('parses a directive with an argument', () => {
+    let input = 'account Assets:Bank:Checking'
+    let { ast } = parse(input)
+    let directive = getChild(ast, 0, 'directive')
+
+    expect(directive.name.toString()).toBe('account')
+    expect(directive.arg?.toString()).toBe('Assets:Bank:Checking')
+  })
+
+  it('parses directives with sub-directives', () => {
+    let input = 'account Assets:Bank:Checking\n  alias Checking'
+    let { ast } = parse(input)
+    let directive = getChild(ast, 0, 'directive')
+
+    expect(directive.subDirectives).toHaveLength(1)
+
+    let subDirective = directive.subDirectives[0]
+    expect(subDirective.key.toString()).toBe('alias')
+    expect(subDirective.value?.toString()).toBe('Checking')
+  })
+
+  it('parses sub-directive values with spaces in them', () => {
+    let input = 'account Foo\n  alias Bar Baz'
+    let directive = parseDirective(input)
+    let alias = getSubDirective(directive, 'alias')
+
+    expect(alias.key.text).toBe('alias')
+    expect(alias.value?.toString()).toBe('Bar Baz')
+  })
+
+  it('parses sub-directives with big spaces', () => {
+    let input = 'account Foo\n  alias Bar   Baz'
+    let directive = parseDirective(input)
+    let alias = getSubDirective(directive, 'alias')
+
+    expect(alias.key.text).toBe('alias')
+    expect(alias.value?.toString()).toBe('Bar   Baz')
+  })
+
+  it('parses sub-directives with special characters', () => {
+    let input = 'account Foo\n  alias Bar#^%!@&Baz'
+    let directive = parseDirective(input)
+    let alias = getSubDirective(directive, 'alias')
+
+    expect(alias.key.text).toBe('alias')
+    expect(alias.value?.toString()).toBe('Bar#^%!@&Baz')
   })
 })

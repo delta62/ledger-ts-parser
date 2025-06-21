@@ -37,7 +37,7 @@ export class ParseError extends Error {
     return new ParseError(message, 'UNEXPECTED_EOF', location)
   }
 
-  constructor(message: string, public code: ErrorCode, public location?: Location) {
+  constructor(message: string, public code: ErrorCode, public location: Location) {
     super(message)
     this.name = 'ParseError'
   }
