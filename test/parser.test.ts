@@ -600,4 +600,81 @@ describe('directives', () => {
     expect(end.end.toString()).toBe('end')
     expect(end.name.toString()).toBe('Foo')
   })
+
+  it('parses alias directives', () => {
+    let input = 'alias Foo=Bar'
+    let { ast } = parse(input)
+    let alias = getChild(ast, 0, 'alias')
+
+    expect(alias.alias.toString()).toBe('alias')
+    expect(alias.name?.toString()).toBe('Foo')
+    expect(alias.value?.toString()).toBe('Bar')
+  })
+
+  it('parses alias directives with special characters', () => {
+    let input = 'alias Foo#^%!@&=Bar#^%!@&'
+    let { ast } = parse(input)
+    let alias = getChild(ast, 0, 'alias')
+
+    expect(alias.name?.toString()).toBe('Foo#^%!@&')
+    expect(alias.value?.toString()).toBe('Bar#^%!@&')
+  })
+
+  it('parses alias directives with spaces in the source & target', () => {
+    let input = 'alias Foo Bar=Bar Baz'
+    let { ast } = parse(input)
+    let alias = getChild(ast, 0, 'alias')
+
+    expect(alias.name?.toString()).toBe('Foo Bar')
+    expect(alias.value?.toString()).toBe('Bar Baz')
+  })
+
+  it('parses alias with a blank left hand side', () => {
+    let input = 'alias =Bar Baz'
+    let { ast } = parse(input)
+    let alias = getChild(ast, 0, 'alias')
+
+    expect(alias.name).toBeUndefined()
+    expect(alias.value?.toString()).toBe('Bar Baz')
+  })
+
+  it('parses alias directives with a blank right hand side', () => {
+    let input = 'alias Foo='
+    let { ast } = parse(input)
+    let alias = getChild(ast, 0, 'alias')
+
+    expect(alias.name?.toString()).toBe('Foo')
+    expect(alias.value).toBeUndefined()
+  })
+
+  it('parses blank alias directives', () => {
+    let input = 'alias'
+    let { ast } = parse(input)
+    let alias = getChild(ast, 0, 'alias')
+
+    expect(alias.alias.toString()).toBe('alias')
+    expect(alias.name).toBeUndefined()
+    expect(alias.eq).toBeUndefined()
+    expect(alias.value).toBeUndefined()
+  })
+
+  it('parses alias directives containing = signs', () => {
+    let input = 'alias Foo=Bar=Baz'
+    let { ast } = parse(input)
+    let alias = getChild(ast, 0, 'alias')
+
+    expect(alias.name?.toString()).toBe('Foo')
+    expect(alias.eq?.toString()).toBe('=') // The equal sign is still present
+    expect(alias.value?.toString()).toBe('Bar=Baz')
+  })
+
+  it('parses alias directives with spaces around the = sign', () => {
+    let input = 'alias Foo = Bar'
+    let { ast } = parse(input)
+    let alias = getChild(ast, 0, 'alias')
+
+    expect(alias.name?.toString()).toBe('Foo ')
+    expect(alias.eq?.toString()).toBe('=')
+    expect(alias.value?.toString()).toBe(' Bar')
+  })
 })

@@ -82,7 +82,14 @@ export interface End extends Node<'end'> {
   name: Token<'identifier'>
 }
 
-export type ASTChild = Transaction | Directive | Comment | Apply | End
+export interface Alias extends Node<'alias'> {
+  alias: Token<'identifier'>
+  name?: Group
+  eq?: Token<'equal'>
+  value?: Group
+}
+
+export type ASTChild = Transaction | Directive | Comment | Apply | End | Alias
 
 export interface AST {
   children: ASTChild[]

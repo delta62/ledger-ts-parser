@@ -113,6 +113,8 @@ export class Parser {
   private parseDirective(): Result<ASTChild, ParseError> {
     return this.expect('identifier').andThen(identifier => {
       switch (identifier.text) {
+        case 'alias':
+          return this.parseAlias(identifier)
         case 'apply':
           return this.parseApplyDirective(identifier)
         case 'comment':
@@ -123,6 +125,22 @@ export class Parser {
           return this.parseStandardDirective(identifier)
       }
     })
+  }
+
+  private parseAlias(alias: Token<'identifier'>): Result<ASTChild, ParseError> {
+    this.skipWhitespace()
+
+    let name = this.slurpUntil(['equal'])
+    let eq = this.skipIf('equal')
+    let value = this.slurp()
+
+    return this.newlineOrEof().map(() => ({
+      type: 'alias',
+      alias,
+      name: name.isEmpty() ? undefined : name,
+      eq,
+      value: value.isEmpty() ? undefined : value,
+    }))
   }
 
   private parseUntilEnd(name: string): Result<ASTChild, ParseError> {
