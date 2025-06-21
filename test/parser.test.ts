@@ -414,7 +414,7 @@ describe('comments', () => {
     let comment = getChild(ast, 0, 'comment')
     let tx = getChild(ast, 1, 'transaction')
 
-    expect(comment.comment.toString()).toBe('# This is a comment')
+    expect(comment.comment?.toString()).toBe('# This is a comment')
     expect(tx).toHaveDate('2024-06-12')
     expect(tx).toHavePayee('Test Payee')
   })
@@ -431,7 +431,7 @@ describe('comments', () => {
 
     expect(tx).toHaveDate('2024-06-12')
     expect(tx).toHavePayee('Test Payee')
-    expect(comment.comment.toString()).toBe('; This is a comment')
+    expect(comment.comment?.toString()).toBe('; This is a comment')
     expect(diagnostics[0].message).toContain('Unexpected token')
   })
 

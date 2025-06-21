@@ -18,7 +18,7 @@ import {
   SubDirective,
   End,
 } from './types'
-import { Group } from './group'
+import { Group, GroupBuilder } from './group'
 import { ok } from './util'
 import { Location, getLocation, defaultLocation } from './location'
 
@@ -138,9 +138,9 @@ export class Parser {
     return this.newlineOrEof().map(() => ({
       type: 'alias',
       alias,
-      name: name.isEmpty() ? undefined : name,
+      name,
       eq,
-      value: value.isEmpty() ? undefined : value,
+      value,
     }))
   }
 
@@ -150,7 +150,7 @@ export class Parser {
       return newline
     }
 
-    let seen = new Group()
+    let seen = new GroupBuilder()
 
     while (this.hasNext()) {
       let previousType = this.previous?.type
@@ -159,25 +159,26 @@ export class Parser {
         let ws = this.skipIf('ws')
         let next2 = this.next()
         if (next2?.type === 'identifier' && ['comment', 'test'].includes(next2.text)) {
+          let comment = seen.build()
           return Result.ok({
             type: 'comment',
-            comment: seen,
+            comment,
             commentChar: name,
-            text: seen.toString(),
+            text: comment?.toString() ?? '',
             tags: {},
             typedTags: {},
           })
         } else {
-          seen.push(next)
+          seen.add(next)
           if (ws) {
-            seen.push(ws)
+            seen.add(ws)
           }
           if (next2) {
-            seen.push(next2)
+            seen.add(next2)
           }
         }
       } else {
-        seen.push(next)
+        seen.add(next)
       }
     }
 
@@ -327,22 +328,22 @@ export class Parser {
         this.skipWhitespace()
       }
 
-      let payeeName = this.slurpUntil('ws', { and: isBigSpace })
+      let builder = new GroupBuilder().append(this.slurpUntil('ws', { and: isBigSpace }))
       while (this.hasNext() && !this.peekType('newline') && !this.peekType('comment')) {
-        let nextChunk = this.slurpUntil('ws', { and: isBigSpace })
+        builder.append(this.slurpUntil('ws', { and: isBigSpace }))
         if (this.peekType('ws')) {
-          nextChunk.push(this.next()!)
+          builder.add(this.next()!)
         }
-
-        payeeName = payeeName.concat(nextChunk)
       }
 
-      let payeeText = payeeName.toString().trim()
+      let payeeGroup = builder.build()
 
-      if (payeeText) {
-        payee = { type: 'payee', name: payeeName }
+      if (payeeGroup) {
+        let payeeText = payeeGroup.toString().trim()
+        payee = { type: 'payee', name: payeeGroup }
+
         if (!this.payees.has(payeeText)) {
-          this.payees.add(payeeText, payee.name.location)
+          this.payees.add(payeeText, payeeGroup.location)
         }
         this.skipWhitespace()
       }
@@ -401,10 +402,22 @@ export class Parser {
 
   private parseCode(): Result<Code, ParseError> {
     return this.expect('lparen')
-      .map(lparen => {
+      .andThen(lparen => {
         this.skipWhitespace()
         let contents = this.slurpUntil('rparen')
-        return { lparen, contents }
+        if (!contents) {
+          if (this.hasNext()) {
+            let expected: TokenType[] = ['rparen']
+            let location = this.getPreviousLocation()
+            let err = ParseError.unexpectedEOF(location, expected)
+            return Result.err(err)
+          } else {
+            let err = ParseError.unexpectedToken(this.peek()!)
+            return Result.err(err)
+          }
+        }
+
+        return Result.ok({ lparen, contents: contents })
       })
       .andThen(({ lparen, contents }) => {
         return this.expect('rparen').map(rparen => ({ lparen, contents, rparen }))
@@ -437,7 +450,9 @@ export class Parser {
         }
       }
     ).map(tokens => {
-      let raw = new Group(...tokens.filter(t => t !== undefined))
+      let ts = tokens.filter(t => t !== undefined)
+      // SAFETY: Date parsing requires at least two integers and a slash or hyphen
+      let raw = Group.UNSAFE_nonEmpty(...ts)
       return { type: 'date', raw }
     })
   }
@@ -445,8 +460,9 @@ export class Parser {
   private parsePosting(): Result<Posting, ParseError> {
     let amount: Amount | undefined
     let accountName = this.slurpUntil('ws', { and: isBigSpace })
+    let comments: Comment[] = []
 
-    if (accountName.length === 0) {
+    if (!accountName) {
       return Result.err(
         new ParseError('Expected account name, but found nothing', 'INVALID_ACCOUNT', this.getPreviousLocation())
       )
@@ -470,19 +486,16 @@ export class Parser {
       amount = parsedAmount.unwrap()
     }
 
-    let endOfLine = this.newlineOrEof()
-    if (endOfLine.isErr()) {
-      return endOfLine
-    }
-
-    // TODO: comments
-    let comments: Comment[] = []
-
-    return Result.ok({ type: 'posting', comments, account, amount })
+    return this.newlineOrEof().map(() => ({
+      type: 'posting',
+      comments,
+      account,
+      amount,
+    }))
   }
 
   private parseAmount(): Result<Amount, ParseError> {
-    let commodity: Group
+    let commodity: Group | undefined
     let unitPlacement: Amount['unitPlacement']
     let amount: Token<'number'> | undefined
     let minus = this.skipIf('hyphen')
@@ -633,7 +646,7 @@ export class Parser {
    * Consumes tokens until a newline or the end of file is encountered.
    * @returns All tokens consumed
    */
-  private slurp(): Group {
+  private slurp(): Group | undefined {
     return this.slurpUntil('newline')
   }
 
@@ -648,8 +661,8 @@ export class Parser {
    * @returns All tokens consumed until the specified type, newline, or end of
    *    file is encountered
    */
-  private slurpUntil(type: TokenType | TokenType[], opts?: { and: (t: Token) => boolean }): Group {
-    let tokens = new Group()
+  private slurpUntil(type: TokenType | TokenType[], opts?: { and: (t: Token) => boolean }): Group | undefined {
+    let tokens = new GroupBuilder()
     let predicate = opts?.and ?? ok
     let next = this.peek()
 
@@ -658,11 +671,11 @@ export class Parser {
     }
 
     while (next && (!type.includes(next.type) || !predicate(next)) && next.type !== 'newline') {
-      tokens.push(this.next()!)
+      tokens.add(this.next()!)
       next = this.peek()
     }
 
-    return tokens
+    return tokens.build()
   }
 }
 

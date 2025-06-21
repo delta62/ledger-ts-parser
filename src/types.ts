@@ -20,12 +20,12 @@ export interface DateNode extends Node<'date'> {
 export interface Amount extends Node<'amount'> {
   amount: Token<'number'>
   minus?: Token<'hyphen'>
-  commodity: Group
+  commodity?: Group
   unitPlacement: 'pre' | 'post'
 }
 
 export interface Comment extends Node<'comment'> {
-  comment: Token<'comment'> | Group
+  comment: Token<'comment'> | Group | undefined
   commentChar: string
   text: string
   tags: Record<string, string | undefined>
