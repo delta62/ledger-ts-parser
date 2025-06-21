@@ -423,7 +423,7 @@ describe('comments', () => {
     let input = `2024-06-12 Test Payee\n; This is a comment\n  Accounts:Checking $100.00`
     let { ast, diagnostics } = parse(input)
 
-    expect(diagnostics).toHaveLength(1)
+    expect(diagnostics).toHaveLength(2)
     expect(ast.children).toHaveLength(2)
 
     let tx = getChild(ast, 0, 'transaction')
@@ -552,5 +552,34 @@ describe('directives', () => {
 
     expect(alias.key.text).toBe('alias')
     expect(alias.value?.toString()).toBe('Bar#^%!@&Baz')
+  })
+
+  it('parses apply directives', () => {
+    let input = 'apply Foo'
+    let { ast } = parse(input)
+    let apply = getChild(ast, 0, 'apply')
+
+    expect(apply.apply.toString()).toBe('apply')
+    expect(apply.name.toString()).toBe('Foo')
+    expect(apply.args).toBeUndefined()
+  })
+
+  it('parses apply directives with arguments', () => {
+    let input = 'apply Foo bar baz'
+    let { ast } = parse(input)
+    let apply = getChild(ast, 0, 'apply')
+
+    expect(apply.apply.toString()).toBe('apply')
+    expect(apply.name.toString()).toBe('Foo')
+    expect(apply.args?.toString()).toBe('bar baz')
+  })
+
+  it('parses end directives', () => {
+    let input = 'end Foo'
+    let { ast } = parse(input)
+    let end = getChild(ast, 0, 'end')
+
+    expect(end.end.toString()).toBe('end')
+    expect(end.name.toString()).toBe('Foo')
   })
 })

@@ -71,7 +71,18 @@ export interface SubDirective extends Node<'subDirective'> {
   value?: Group
 }
 
-export type ASTChild = Transaction | Directive | Comment
+export interface Apply extends Node<'apply'> {
+  apply: Token<'identifier'>
+  name: Token<'identifier'>
+  args?: Group
+}
+
+export interface End extends Node<'end'> {
+  end: Token<'identifier'>
+  name: Token<'identifier'>
+}
+
+export type ASTChild = Transaction | Directive | Comment | Apply | End
 
 export interface AST {
   children: ASTChild[]

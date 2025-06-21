@@ -16,6 +16,7 @@ import {
   AccountRef,
   Directive,
   SubDirective,
+  End,
 } from './types'
 import { Group } from './group'
 import { ok } from './util'
@@ -109,12 +110,49 @@ export class Parser {
     })
   }
 
-  private parseDirective(): Result<Directive, ParseError> {
+  private parseDirective(): Result<ASTChild, ParseError> {
     return this.expect('identifier').andThen(identifier => {
       switch (identifier.text) {
+        case 'apply':
+          return this.parseApplyDirective(identifier)
+        case 'end':
+          return this.parseEndDirective(identifier)
         default:
           return this.parseStandardDirective(identifier)
       }
+    })
+  }
+
+  private parseApplyDirective(apply: Token<'identifier'>): Result<ASTChild, ParseError> {
+    this.skipWhitespace()
+
+    return this.expect('identifier').andThen(name => {
+      this.skipWhitespace()
+
+      let args: Group | undefined
+      if (this.hasNext() && !this.peekType('newline')) {
+        args = this.slurpUntil('newline')
+      }
+
+      return this.newlineOrEof().map(() => ({
+        type: 'apply',
+        apply,
+        name,
+        args,
+        subDirectives: [],
+      }))
+    })
+  }
+
+  private parseEndDirective(end: Token<'identifier'>): Result<End, ParseError> {
+    this.skipWhitespace()
+
+    return this.expect('identifier').andThen(name => {
+      return this.newlineOrEof().map(() => ({
+        type: 'end',
+        end,
+        name,
+      }))
     })
   }
 
@@ -231,6 +269,10 @@ export class Parser {
       let payeeName = this.slurpUntil('ws', { and: isBigSpace })
       while (this.hasNext() && !this.peekType('newline') && !this.peekType('comment')) {
         let nextChunk = this.slurpUntil('ws', { and: isBigSpace })
+        if (this.peekType('ws')) {
+          nextChunk.push(this.next()!)
+        }
+
         payeeName = payeeName.concat(nextChunk)
       }
 
