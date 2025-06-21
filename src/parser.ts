@@ -36,24 +36,23 @@ export class Parser {
   private accounts = new SymbolTable()
   private payees = new SymbolTable()
   private diagnostics: ParseError[] = []
-  private previous: Token | undefined
   private children: ASTChild[] = []
   private panic = false
 
   constructor(private lexer: Lexer) {}
 
   public parse(): ParserResult {
-    while (this.lexer.hasNext()) {
-      let nextType: TokenType = this.peek()!.type
+    while (this.hasNext()) {
+      let nextType = this.peek().type
 
       if (this.peekType(['newline', 'ws'])) {
-        this.previous = this.next()
+        this.next()
         continue
       }
 
       if (this.panic) {
         // Panic mode: skip tokens until a safe point
-        if (this.previous?.type === 'newline') {
+        if (this.lexer.previous()?.type === 'newline') {
           this.panic = false
         } else {
           this.next()
@@ -61,9 +60,9 @@ export class Parser {
         }
       }
 
-      if (this.previous?.type === 'ws') {
+      if (this.lexer.previous()?.type === 'ws') {
         this.panic = true
-        this.diagnostics.push(ParseError.unexpectedToken(this.previous))
+        this.diagnostics.push(ParseError.unexpectedToken(this.lexer.previous()!))
         this.next()
       }
 
@@ -79,7 +78,7 @@ export class Parser {
           break
         default:
           this.panic = true
-          this.diagnostics.push(ParseError.unexpectedToken(this.next()!))
+          this.diagnostics.push(ParseError.unexpectedToken(this.next()))
       }
     }
 
@@ -92,8 +91,7 @@ export class Parser {
   }
 
   private parseComment(): Result<Comment, ParseError> {
-    let commentToken = this.expect('comment')
-    return commentToken.map(comment => {
+    return this.expect('comment').map(comment => {
       let commentChar = comment.text[0]
       let text = comment.text.slice(1)
       let tags: Record<string, string | undefined> = {}
@@ -153,12 +151,12 @@ export class Parser {
     let seen = new GroupBuilder()
 
     while (this.hasNext()) {
-      let previousType = this.previous?.type
-      let next = this.next()!
+      let previousType = this.lexer.previous()?.type
+      let next = this.next()
       if (next.type === 'identifier' && next.text === 'end' && previousType === 'newline') {
         let ws = this.skipIf('ws')
         let next2 = this.next()
-        if (next2?.type === 'identifier' && ['comment', 'test'].includes(next2.text)) {
+        if (next2.type === 'identifier' && ['comment', 'test'].includes(next2.text)) {
           let comment = seen.build()
           return Result.ok({
             type: 'comment',
@@ -547,11 +545,7 @@ export class Parser {
   private skipIf<T extends TokenType>(type: T): Token<T> | undefined
   private skipIf<T extends readonly TokenType[]>(types: T): Token<TupleToUnion<T>> | undefined
   private skipIf(types?: TokenType | TokenType[]): Token | undefined {
-    let nextType = this.peek()?.type
-    if (!nextType) {
-      return undefined
-    }
-
+    let nextType = this.peek().type
     let acceptedTypes = Array.isArray(types) ? types : [types]
 
     if (acceptedTypes.includes(nextType)) {
@@ -562,28 +556,28 @@ export class Parser {
   }
 
   private peekType(type: TokenType | TokenType[]): boolean {
-    let typeArray: (TokenType | undefined)[] = Array.isArray(type) ? type : [type]
-    return typeArray.includes(this.lexer.peek()?.type)
+    let typeArray = Array.isArray(type) ? type : [type]
+    return typeArray.includes(this.lexer.peek().type)
   }
 
-  private next(): Token | undefined {
-    let next = this.lexer.next()
-    this.previous = next
-    return next
+  private next(): Token {
+    return this.lexer.next()
   }
 
   private hasNext(): boolean {
     return this.lexer.hasNext()
   }
 
-  private peek(): Token | undefined {
+  private peek(): Token {
     return this.lexer.peek()
   }
 
   private getPreviousLocation(): Location {
-    if (this.previous) {
-      return getLocation(this.previous)
+    let previous = this.lexer.previous()
+    if (previous) {
+      return getLocation(previous)
     }
+
     return defaultLocation()
   }
 
@@ -596,8 +590,8 @@ export class Parser {
       type = [type]
     }
 
-    if (!next) {
-      let location = this.getPreviousLocation() ?? defaultLocation()
+    if (next.type === 'eof') {
+      let location = this.getPreviousLocation()
       return Result.err(ParseError.unexpectedEOF(location, type))
     }
 
@@ -609,12 +603,12 @@ export class Parser {
   }
 
   private newlineOrEof(): Result<void, ParseError> {
+    this.skipWhitespace()
     let next = this.next()
-    if (!next || next.type === 'newline') {
-      return Result.ok(undefined)
-    }
 
-    return Result.err(ParseError.unexpectedToken(next, 'newline'))
+    return ['newline', 'eof'].includes(next.type)
+      ? Result.ok(undefined)
+      : Result.err(ParseError.unexpectedToken(next, 'newline'))
   }
 
   /**
@@ -624,9 +618,7 @@ export class Parser {
   private expectInteger(): Result<Token<'number'>, ParseError> {
     return this.expect('number').andThen(token => {
       if (!Number.isInteger(parseFloat(token.value))) {
-        let location = getLocation(token)
-        let message = `Expected integer, but found ${token.text}`
-        return Result.err(new ParseError(message, 'INVALID_INTEGER', location))
+        return Result.err(ParseError.invalidInteger(token))
       }
 
       return Result.ok(token)
@@ -670,7 +662,7 @@ export class Parser {
       type = [type]
     }
 
-    while (next && (!type.includes(next.type) || !predicate(next)) && next.type !== 'newline') {
+    while (next.type !== 'eof' && (!type.includes(next.type) || !predicate(next)) && next.type !== 'newline') {
       tokens.add(this.next()!)
       next = this.peek()
     }

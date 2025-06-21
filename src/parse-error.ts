@@ -14,7 +14,7 @@ export class ParseError extends Error {
     }
 
     let location = getLocation(saw)
-    let message = `Unexpected token '${saw.value}' at ${location.line}:${location.column}`
+    let message = `Unexpected token '${saw.value}'`
 
     if (expected.length === 1) {
       message += `, expected '${expected[0]}'`
@@ -26,7 +26,7 @@ export class ParseError extends Error {
   }
 
   static unexpectedEOF(location: Location, expected: TokenType[]): ParseError {
-    let message = `Unexpected end of file at ${location.line}:${location.column}`
+    let message = `Unexpected end of file`
 
     if (expected.length === 1) {
       message += `, expected '${expected[0]}'`
@@ -35,6 +35,12 @@ export class ParseError extends Error {
     }
 
     return new ParseError(message, 'UNEXPECTED_EOF', location)
+  }
+
+  static invalidInteger(saw: Token): ParseError {
+    let location = getLocation(saw)
+    let message = `Invalid integer '${saw.value}'`
+    return new ParseError(message, 'INVALID_INTEGER', location)
   }
 
   constructor(message: string, public code: ErrorCode, public location: Location) {

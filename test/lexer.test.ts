@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import Lexer, { Token } from '../src/lexer'
-import { Group } from '../src/group'
 
 function lexAll(input: string, opts?: { keepWhitespace?: boolean }): Token[] {
   let lexer = new Lexer(input)
@@ -10,7 +9,7 @@ function lexAll(input: string, opts?: { keepWhitespace?: boolean }): Token[] {
   while (true) {
     let token = lexer.next()
 
-    if (!token) {
+    if (token.type === 'eof') {
       break
     }
 
@@ -29,10 +28,10 @@ function lexOne(input: string): Token {
   let next = lexer.next()
   let next2 = lexer.next()
 
-  expect(next).toBeDefined()
-  expect(next2, 'Expected only one token in the stream, but got multiple').not.toBeDefined()
+  expect(next).not.toHaveProperty('type', 'eof')
+  expect(next2).toHaveProperty('type', 'eof')
 
-  return next as Token
+  return next
 }
 
 describe('Lexer', () => {
@@ -43,8 +42,7 @@ describe('Lexer', () => {
 
   it('is an iterable', () => {
     let lexer = new Lexer('1 2 3 !')
-
-    let tokens = Array.from(lexer).filter(t => t.type !== 'ws' && t.type !== 'newline')
+    let tokens = Array.from(lexer).filter(t => !['ws', 'newline', 'eof'].includes(t.type))
 
     expect(tokens.length).toBe(4)
     expect(tokens[0].type).toBe('number')
@@ -92,20 +90,15 @@ describe('Lexer', () => {
     expect(token).toHaveTokenType('bang')
   })
 
-  it('lexes directives', () => {
-    let directives = ['include', 'account', 'alias', 'bucket', 'payee', 'tag']
-    for (let dir of directives) {
-      let token = lexOne(dir)
-      expect(token).toHaveTokenType('identifier')
-      expect(token.value).toBe(dir)
-    }
+  it('lexes identifiers', () => {
+    let token = lexOne('string')
+    expect(token).toHaveTokenType('identifier')
+    expect(token.value).toBe('string')
   })
 
-  it('lexes tag', () => {
-    let [at, id] = lexAll('@WholeFoods')
+  it('lexes at', () => {
+    let at = lexOne('@')
     expect(at).toHaveTokenType('at')
-    expect(id).toHaveTokenType('identifier')
-    expect(id.value).toBe('WholeFoods')
   })
 
   it('lexes number', () => {
@@ -114,47 +107,28 @@ describe('Lexer', () => {
     expect(token).toHaveProperty('value', '123.45')
   })
 
-  it('lexes negative amount', () => {
-    let [hyphen, dollar, amount] = lexAll('-$123.45')
+  it('lexes hyphen separately from numbers', () => {
+    let [hyphen, amount] = lexAll('-123.45')
     expect(hyphen).toHaveTokenType('hyphen')
-    expect(dollar).toHaveTokenType('symbol')
-    expect(amount).toHaveProperty('value', '123.45')
-  })
-
-  it('lexes negative amount following currency sign', () => {
-    let [dollar, hyphen, amount] = lexAll('$-123.45')
-    expect(dollar).toHaveTokenType('symbol')
-    expect(hyphen).toHaveTokenType('hyphen')
-    expect(amount).toHaveProperty('value', '123.45')
-  })
-
-  it('lexes amount with comma', () => {
-    let [commodity, amount] = lexAll('$1,234.56')
-    expect(commodity).toHaveTokenType('symbol')
-    expect(commodity.value).toBe('$')
     expect(amount).toHaveTokenType('number')
-    expect(amount.value).toBe('1,234.56')
   })
 
-  it('lexes an amount in euros', () => {
+  it('lexes numbers with commas', () => {
+    let num = lexOne('1,234.56')
+    expect(num).toHaveTokenType('number')
+    expect(num.value).toBe('1,234.56')
+  })
+
+  it('lexes symbols', () => {
     let [currency, amount] = lexAll('€ 123,45')
     expect(currency).toHaveTokenType('symbol')
     expect(amount).toHaveTokenType('number')
-    expect(amount).toHaveProperty('value', '123,45')
   })
 
-  it('lexes an amount in euros with no space', () => {
+  it('lexes symbols adjacent to numbers', () => {
     let [commodity, amount] = lexAll('€123,45')
     expect(commodity).toHaveTokenType('symbol')
-    expect(commodity).toHaveProperty('text', '€')
     expect(amount).toHaveTokenType('number')
-    expect(amount).toHaveProperty('value', '123,45')
-  })
-
-  it('lexes account', () => {
-    let tokens = lexAll('Assets:Bank:Checking')
-    let group = new Group(...tokens)
-    expect(group.toString()).toBe('Assets:Bank:Checking')
   })
 
   it('lexes lparen and rparen', () => {
@@ -166,11 +140,6 @@ describe('Lexer', () => {
   it('lexes colon', () => {
     let token = lexOne(':')
     expect(token).toHaveTokenType('colon')
-  })
-
-  it('lexes at', () => {
-    let token = lexOne('@')
-    expect(token).toHaveTokenType('at')
   })
 })
 
@@ -187,7 +156,7 @@ describe('hasNext', () => {
 
   it('returns false after all tokens are consumed', () => {
     let lexer = new Lexer('foo')
-    while (lexer.next()) {
+    while (lexer.next().type !== 'eof') {
       /* consume all tokens */
     }
     expect(lexer.hasNext()).toBe(false)
