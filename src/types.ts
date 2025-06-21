@@ -25,7 +25,7 @@ export interface Amount extends Node<'amount'> {
 }
 
 export interface Comment extends Node<'comment'> {
-  comment: Token<'comment'>
+  comment: Token<'comment'> | Group
   commentChar: string
   text: string
   tags: Record<string, string | undefined>

@@ -414,7 +414,7 @@ describe('comments', () => {
     let comment = getChild(ast, 0, 'comment')
     let tx = getChild(ast, 1, 'transaction')
 
-    expect(comment.comment.text).toBe('# This is a comment')
+    expect(comment.comment.toString()).toBe('# This is a comment')
     expect(tx).toHaveDate('2024-06-12')
     expect(tx).toHavePayee('Test Payee')
   })
@@ -431,7 +431,7 @@ describe('comments', () => {
 
     expect(tx).toHaveDate('2024-06-12')
     expect(tx).toHavePayee('Test Payee')
-    expect(comment.comment.text).toBe('; This is a comment')
+    expect(comment.comment.toString()).toBe('; This is a comment')
     expect(diagnostics[0].message).toContain('Unexpected token')
   })
 
@@ -473,6 +473,24 @@ describe('comments', () => {
   it.todo('parses typed tags in comments')
 
   it.todo('parses chained tags in comments')
+
+  it('parses comment directives', () => {
+    let input = `comment\n  This is a comment\nAnd this is another\nend comment`
+    let { ast } = parse(input)
+    let comment = getChild(ast, 0, 'comment')
+
+    expect(comment.commentChar).toBe('comment')
+    expect(comment.text).toBe('  This is a comment\nAnd this is another\n')
+  })
+
+  it('skips over arbitrary "end" tokens in comments', () => {
+    let input = `comment\n  This is a false "end comment"\nend comment`
+    let { ast } = parse(input)
+    let comment = getChild(ast, 0, 'comment')
+
+    expect(comment.commentChar).toBe('comment')
+    expect(comment.text).toContain('"end comment"')
+  })
 })
 
 describe('panic mode', () => {

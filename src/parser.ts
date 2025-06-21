@@ -115,12 +115,54 @@ export class Parser {
       switch (identifier.text) {
         case 'apply':
           return this.parseApplyDirective(identifier)
+        case 'comment':
+          return this.parseUntilEnd(identifier.text)
         case 'end':
           return this.parseEndDirective(identifier)
         default:
           return this.parseStandardDirective(identifier)
       }
     })
+  }
+
+  private parseUntilEnd(name: string): Result<ASTChild, ParseError> {
+    let newline = this.expect('newline')
+    if (newline.isErr()) {
+      return newline
+    }
+
+    let seen = new Group()
+
+    while (this.hasNext()) {
+      let previousType = this.previous?.type
+      let next = this.next()!
+      if (next.type === 'identifier' && next.text === 'end' && previousType === 'newline') {
+        let ws = this.skipIf('ws')
+        let next2 = this.next()
+        if (next2?.type === 'identifier' && next2.text === name) {
+          return Result.ok({
+            type: 'comment',
+            comment: seen,
+            commentChar: name,
+            text: seen.toString(),
+            tags: {},
+            typedTags: {},
+          })
+        } else {
+          seen.push(next)
+          if (ws) {
+            seen.push(ws)
+          }
+          if (next2) {
+            seen.push(next2)
+          }
+        }
+      } else {
+        seen.push(next)
+      }
+    }
+
+    return Result.err(ParseError.unexpectedEOF(this.getPreviousLocation(), ['identifier']))
   }
 
   private parseApplyDirective(apply: Token<'identifier'>): Result<ASTChild, ParseError> {
