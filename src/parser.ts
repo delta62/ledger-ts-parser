@@ -118,6 +118,7 @@ export class Parser {
         case 'apply':
           return this.parseApplyDirective(identifier)
         case 'comment':
+        case 'test':
           return this.parseUntilEnd(identifier.text)
         case 'end':
           return this.parseEndDirective(identifier)
@@ -157,7 +158,7 @@ export class Parser {
       if (next.type === 'identifier' && next.text === 'end' && previousType === 'newline') {
         let ws = this.skipIf('ws')
         let next2 = this.next()
-        if (next2?.type === 'identifier' && next2.text === name) {
+        if (next2?.type === 'identifier' && ['comment', 'test'].includes(next2.text)) {
           return Result.ok({
             type: 'comment',
             comment: seen,

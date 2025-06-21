@@ -483,6 +483,15 @@ describe('comments', () => {
     expect(comment.text).toBe('  This is a comment\nAnd this is another\n')
   })
 
+  it('parses test directives', () => {
+    let input = `test\n  This is a test comment\nend test`
+    let { ast } = parse(input)
+    let comment = getChild(ast, 0, 'comment')
+
+    expect(comment.commentChar).toBe('test')
+    expect(comment.text).toBe('  This is a test comment\n')
+  })
+
   it('skips over arbitrary "end" tokens in comments', () => {
     let input = `comment\n  This is a false "end comment"\nend comment`
     let { ast } = parse(input)
@@ -490,6 +499,24 @@ describe('comments', () => {
 
     expect(comment.commentChar).toBe('comment')
     expect(comment.text).toContain('"end comment"')
+  })
+
+  it('accepts "end test" when comment began with "comment"', () => {
+    let input = `comment\n  This is a comment\nend test`
+    let { ast } = parse(input)
+    let comment = getChild(ast, 0, 'comment')
+
+    expect(comment.commentChar).toBe('comment')
+    expect(comment.text).toBe('  This is a comment\n')
+  })
+
+  it('accepts "end comment" when comment began with "test"', () => {
+    let input = `test\n  This is a comment\nend comment`
+    let { ast } = parse(input)
+    let comment = getChild(ast, 0, 'comment')
+
+    expect(comment.commentChar).toBe('test')
+    expect(comment.text).toBe('  This is a comment\n')
   })
 })
 
