@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Parser } from '../src/parser'
 import { Lexer } from '../src/lexer'
-import { AST, ASTChild, Transaction, Posting, Directive, SubDirective } from '../src/types'
+import { AST, ASTChild, Transaction, Posting, Directive, SubDirective } from '../src/node'
 
 function parse(input: string) {
   let lexer = new Lexer(input)

@@ -1,19 +1,18 @@
 import { describe, it, expect } from 'vitest'
 import Lexer, { Token } from '../src/lexer'
 
-function lexAll(input: string, opts?: { keepWhitespace?: boolean }): Token[] {
+function lexAll(input: string, opts?: { keepNewlines?: boolean; keepEof?: boolean }): Token[] {
   let lexer = new Lexer(input)
   let tokens: Token[] = []
-  let keepWhitespace = opts?.keepWhitespace ?? false
+  let keepNewlines = opts?.keepNewlines ?? false
+  let keepEof = opts?.keepEof ?? false
 
-  while (true) {
-    let token = lexer.next()
-
-    if (token.type === 'eof') {
+  for (let token of lexer) {
+    if (token.type === 'eof' && !keepEof) {
       break
     }
 
-    if (!keepWhitespace && (token.type === 'ws' || token.type === 'newline')) {
+    if (token.type === 'newline' && !keepNewlines) {
       continue
     }
 
@@ -42,19 +41,13 @@ describe('Lexer', () => {
 
   it('is an iterable', () => {
     let lexer = new Lexer('1 2 3 !')
-    let tokens = Array.from(lexer).filter(t => !['ws', 'newline', 'eof'].includes(t.type))
+    let tokens = Array.from(lexer).filter(t => t.type !== 'eof')
 
     expect(tokens.length).toBe(4)
     expect(tokens[0].type).toBe('number')
     expect(tokens[1].type).toBe('number')
     expect(tokens[2].type).toBe('number')
     expect(tokens[3].type).toBe('bang')
-  })
-
-  it('lexes whitespace', () => {
-    let token = lexOne('   \t')
-    expect(token).toHaveTokenType('ws')
-    expect(token.value).toBe('   \t')
   })
 
   it('lexes newline', () => {
@@ -70,13 +63,13 @@ describe('Lexer', () => {
   it('lexes comment', () => {
     let token = lexOne('; this is a comment')
     expect(token).toHaveTokenType('comment')
-    expect(token.value).toBe('; this is a comment')
+    expect(token.innerText()).toBe('; this is a comment')
   })
 
   it('lexes integer', () => {
     let token = lexOne('2024')
     expect(token).toHaveTokenType('number')
-    expect(token).toHaveProperty('value', '2024')
+    expect(token.innerText()).toBe('2024')
   })
 
   it('lexes cleared', () => {
@@ -91,9 +84,9 @@ describe('Lexer', () => {
   })
 
   it('lexes identifiers', () => {
-    let token = lexOne('string')
+    let token = lexOne('someString')
     expect(token).toHaveTokenType('identifier')
-    expect(token.value).toBe('string')
+    expect(token.innerText()).toBe('someString')
   })
 
   it('lexes at', () => {
@@ -104,7 +97,7 @@ describe('Lexer', () => {
   it('lexes number', () => {
     let token = lexOne('123.45')
     expect(token).toHaveTokenType('number')
-    expect(token).toHaveProperty('value', '123.45')
+    expect(token.innerText()).toBe('123.45')
   })
 
   it('lexes hyphen separately from numbers', () => {
@@ -116,7 +109,7 @@ describe('Lexer', () => {
   it('lexes numbers with commas', () => {
     let num = lexOne('1,234.56')
     expect(num).toHaveTokenType('number')
-    expect(num.value).toBe('1,234.56')
+    expect(num.innerText()).toBe('1,234.56')
   })
 
   it('lexes symbols', () => {
@@ -175,7 +168,31 @@ describe('hasNext', () => {
     let lexer = new Lexer('foo')
     expect(lexer.hasNext()).toBe(true)
     let token = lexer.next()
-    expect(token?.value).toBe('foo')
+    expect(token.innerText()).toBe('foo')
     expect(lexer.hasNext()).toBe(false)
+  })
+})
+
+describe('whitespace', () => {
+  it('eagerly consumes whitespace', () => {
+    let tokens = lexAll('  foo  bar  ')
+    let [foo, bar] = tokens
+    expect(tokens.length).toBe(2)
+
+    expect(foo.innerText()).toBe('foo')
+    expect(foo.outerText()).toBe('  foo  ')
+
+    expect(bar.innerText()).toBe('bar')
+    expect(bar.outerText()).toBe('bar  ')
+  })
+
+  it('parses input with only whitespace', () => {
+    let tokens = lexAll('\t  ', { keepEof: true })
+
+    expect(tokens).toHaveLength(1)
+
+    expect(tokens[0]).toHaveTokenType('eof')
+    expect(tokens[0].innerText()).toBe('')
+    expect(tokens[0].outerText()).toBe('\t  ')
   })
 })

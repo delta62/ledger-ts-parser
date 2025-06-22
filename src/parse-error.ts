@@ -1,10 +1,10 @@
 import { Location, getLocation } from './location'
-import type { Token, TokenType } from './lexer'
+import type { Token, MooTokenType } from './lexer'
 
 export type ErrorCode = 'UNEXPECTED_TOKEN' | 'UNEXPECTED_EOF' | 'INVALID_DATE' | 'INVALID_ACCOUNT' | 'INVALID_INTEGER'
 
 export class ParseError extends Error {
-  static unexpectedToken(saw: Token, expected?: TokenType | TokenType[]): ParseError {
+  static unexpectedToken(saw: Token, expected?: MooTokenType | MooTokenType[]): ParseError {
     if (!Array.isArray(expected)) {
       if (expected) {
         expected = [expected]
@@ -25,7 +25,7 @@ export class ParseError extends Error {
     return new ParseError(message, 'UNEXPECTED_TOKEN', location)
   }
 
-  static unexpectedEOF(location: Location, expected: TokenType[]): ParseError {
+  static unexpectedEOF(location: Location, expected: MooTokenType[]): ParseError {
     let message = `Unexpected end of file`
 
     if (expected.length === 1) {

@@ -1,4 +1,5 @@
 import moo from 'moo'
+import { Location } from './location'
 
 const LEDGER_RULES = {
   newline: { match: /\r?\n/, lineBreaks: true },
@@ -20,16 +21,71 @@ const LEDGER_RULES = {
   at: /@/,
   identifier: /[A-Za-z]+/,
   symbol: /[^\r\n\s\t]/,
-  eof: /[^\s\S]/,
 }
 
-export type TokenType = keyof typeof LEDGER_RULES
-export type Token<T extends TokenType = TokenType> = moo.Token<typeof LEDGER_RULES, T>
+type MooTokenType = keyof typeof LEDGER_RULES
+type MooToken<T extends MooTokenType = MooTokenType> = moo.Token<typeof LEDGER_RULES, T>
 
-export class Lexer implements Iterable<Token> {
+export type TokenType = Omit<MooTokenType, 'ws'> | 'eof'
+export class Token<T extends TokenType = TokenType> {
+  private leadingSpace: string
+  private trailingSpace: string
+  private text: string
+  public readonly location: Location
+  public readonly type: T
+
+  public static virtual<T extends TokenType = TokenType>(
+    type: T,
+    location: Location,
+    leadingSpace?: MooToken<'ws'>
+  ): Token<T> {
+    let fakeToken = {
+      type: type as MooTokenType,
+      text: '',
+      value: '',
+      lineBreaks: 0,
+      line: location.line,
+      col: location.column,
+      offset: location.offset,
+    }
+
+    let t = new Token<T>(fakeToken)
+
+    t.leadingSpace = leadingSpace?.text ?? ''
+    t.trailingSpace = ''
+    return t
+  }
+
+  constructor(mooToken: MooToken, leadingSpace?: MooToken<'ws'>, trailingSpace?: MooToken<'ws'>) {
+    this.type = mooToken.type as T
+    this.location = { line: mooToken.line, column: mooToken.col, offset: mooToken.offset }
+    this.text = mooToken.text
+    this.leadingSpace = leadingSpace?.text ?? ''
+    this.trailingSpace = trailingSpace?.text ?? ''
+  }
+
+  public innerText(): string {
+    return this.text
+  }
+
+  public outerText(): string {
+    return this.leadingSpace + this.text + this.trailingSpace
+  }
+
+  public innerLength(): number {
+    return this.text.length
+  }
+
+  public outerLength(): number {
+    return this.text.length + this.leadingSpace.length + this.trailingSpace.length
+  }
+}
+
+export class Lexer {
   private lexer: moo.Lexer<typeof LEDGER_RULES>
-  private lookahead: Token | undefined
-  private lookbehind: Token | undefined
+  private _peek?: MooToken
+  private lookahead?: Token
+  private lookbehind?: Token
 
   constructor(input: string) {
     this.lexer = moo.compile(LEDGER_RULES)
@@ -38,10 +94,10 @@ export class Lexer implements Iterable<Token> {
 
   public peek(): Token {
     if (!this.lookahead) {
-      this.lookahead = this.lexer.next()
+      this.lookahead = this.getNext() ?? this.eofToken()
     }
 
-    return this.lookahead ?? this.eofToken()
+    return this.lookahead
   }
 
   public previous(): Token | undefined {
@@ -56,13 +112,9 @@ export class Lexer implements Iterable<Token> {
       return t
     }
 
-    let next = this.lexer.next()
-    if (next) {
-      this.lookbehind = next
-      return next
-    } else {
-      return this.eofToken()
-    }
+    let next = this.getNext()
+    this.lookbehind = next
+    return next
   }
 
   public hasNext(): boolean {
@@ -74,10 +126,10 @@ export class Lexer implements Iterable<Token> {
 
     return {
       next: () => {
-        let token = this.next()
         if (done) {
           return { value: undefined, done: true }
         } else {
+          let token = this.next()
           done = token.type === 'eof'
           return { value: token, done: false }
         }
@@ -85,11 +137,40 @@ export class Lexer implements Iterable<Token> {
     }
   }
 
-  private eofToken(): Token<'eof'> {
-    let line = this.lookbehind?.line ?? 1
-    let col = this.lookbehind?.col ?? 1
-    let offset = this.lookbehind?.offset ?? 0
-    return { type: 'eof', value: '', text: '', line, col, offset, lineBreaks: 0 }
+  private getNext(): Token {
+    let next = this._peek ?? this.lexer.next()
+
+    if (!next) {
+      return this.eofToken()
+    }
+
+    let leadingSpace: MooToken<'ws'> | undefined
+    let trailingSpace: MooToken<'ws'> | undefined
+
+    if (next.type === 'ws') {
+      leadingSpace = next as MooToken<'ws'>
+      next = this.lexer.next()
+      if (!next) {
+        return this.eofToken(leadingSpace)
+      }
+    }
+
+    this._peek = this.lexer.next()
+    if (this._peek?.type === 'ws') {
+      trailingSpace = this._peek as MooToken<'ws'>
+      this._peek = undefined
+    }
+
+    return new Token(next, leadingSpace, trailingSpace)
+  }
+
+  private eofToken(leadingSpace?: MooToken<'ws'>): Token<'eof'> {
+    let line = this.lookbehind?.location.line ?? 1
+    let column = this.lookbehind?.location.column ?? 1
+    let offset = this.lookbehind?.location.offset ?? 0
+    let location: Location = { line, column, offset }
+
+    return Token.virtual('eof', location, leadingSpace)
   }
 }
 
