@@ -4,26 +4,47 @@ import { Result } from './result'
 import { Parser } from './parser'
 import { ParseError } from './parse-error'
 
-export type Trivia = Token<'ws'> | Token<'comment'> | Token<'newline'>
-
-export interface NodeTrivia {
-  before: Trivia[]
-  after: Trivia[]
-}
-
 export abstract class Node<T extends string> {
-  constructor(public type: T, public trivia: NodeTrivia) {}
+  constructor(public type: T) {}
 }
 
 export class AccountRef extends Node<'accountRef'> {
-  constructor(public account: string, trivia: NodeTrivia, public name: Group) {
-    super('accountRef', trivia)
+  public static parse(parser: Parser): Result<AccountRef, ParseError> {
+    return parser.slurpUntilHardSpace().map(accountName => {
+      return new AccountRef(accountName)
+    })
+  }
+
+  constructor(public readonly name: Group) {
+    super('accountRef')
   }
 }
 
 export class Payee extends Node<'payee'> {
-  constructor(public name: string, trivia: NodeTrivia, public group: Group) {
-    super('payee', trivia)
+  public static parse(parser: Parser): Result<Payee, ParseError> {
+    return parser
+      .slurpUntilHardSpace()
+      .andThen(group => {
+        while (parser.lineHasNext() && !parser.peekType('comment')) {
+          let nextChunk = parser.slurpUntilHardSpace()
+          if (nextChunk.isErr()) {
+            return nextChunk
+          }
+          group = group.concat(nextChunk.unwrap())
+        }
+
+        return Result.ok(group)
+      })
+      .map(group => {
+        let payeeText = group.innerText()
+        parser.declarePayee(payeeText, group.location)
+
+        return new Payee(group)
+      })
+  }
+
+  constructor(public readonly group: Group) {
+    super('payee')
   }
 }
 
@@ -31,15 +52,9 @@ export class DateNode extends Node<'date'> {
   static parse(parser: Parser): Result<DateNode, ParseError> {
     return Result.all(
       () => parser.expectInteger(),
-      () => parser.expect(['slash', 'hyphen']),
+      () => parser.expect('slash', 'hyphen'),
       () => parser.expectInteger(),
-      (_, sep) => {
-        if (parser.peekType(sep.type)) {
-          return parser.expect(['slash', 'hyphen'])
-        } else {
-          return Result.ok(undefined)
-        }
-      },
+      (_, sep) => parser.skipIf(sep.type),
       (_n1, _s1, _n2, sep) => {
         if (sep) {
           return parser.expectInteger()
@@ -49,101 +64,88 @@ export class DateNode extends Node<'date'> {
       }
     ).map(tokens => {
       let ts = tokens.filter(t => t !== undefined)
-      // SAFETY: Date parsing requires at least two integers and a slash or hyphen
+      // SAFETY: Date parsing above ensures at least two integers and a slash or hyphen
       let raw = Group.UNSAFE_nonEmpty(...ts)
-      return new DateNode(raw, trivia)
+      return new DateNode(raw)
     })
   }
 
-  constructor(public raw: Group, trivia: NodeTrivia) {
-    super('date', trivia)
+  constructor(public readonly raw: Group) {
+    super('date')
   }
 }
 
 export class Amount extends Node<'amount'> {
   public static parse(parser: Parser): Result<Amount, ParseError> {
-    let commodity: Group | undefined
-    let unitPlacement: Amount['unitPlacement']
     let amount: Token<'number'> | undefined
-    let minus = this.skipIf('hyphen')
+    let minus = parser.skipIf('hyphen')
+    let preCommodity: Group | undefined
+    let postCommodity: Group | undefined
 
-    if (this.peekType('number')) {
-      let numberToken = this.next() as Token<'number'>
-      unitPlacement = 'post'
-      amount = numberToken
-    } else {
-      unitPlacement = 'pre'
-    }
-
-    commodity = this.slurpUntil(['hyphen', 'number'])
-
-    if (!minus) {
-      minus = this.skipIf('hyphen')
-    }
-
-    if (!amount) {
-      let parsedAmount = this.expect('number')
-      if (parsedAmount.isErr()) {
-        return parsedAmount
+    if (parser.peekType('number')) {
+      preCommodity = undefined
+      amount = parser.next() as Token<'number'>
+      postCommodity = parser.slurpUntil(['hyphen', 'number', 'comment']).unwrapOr(undefined)
+    } else if (!parser.peekType('newline', 'comment') && parser.hasNext()) {
+      preCommodity = parser.slurpUntil(['hyphen', 'number', 'comment']).unwrapOr(undefined)
+      minus = minus ?? parser.skipIf('hyphen')
+      let num = parser.expect('number')
+      if (num.isErr()) {
+        return num
       }
-      amount = parsedAmount.unwrap()
+      amount = num.unwrap()
+      postCommodity = undefined
     }
 
-    return Result.ok({
-      type: 'amount',
-      minus,
-      amount,
-      commodity,
-      unitPlacement,
-    })
+    return Result.ok(new Amount(amount, minus, preCommodity, postCommodity))
   }
 
   constructor(
-    public amount: Token<'number'>,
-    public minus: Token<'hyphen'> | undefined,
-    public preCommodity: Group | undefined,
-    public postCommodity: Group | undefined,
-    trivia: NodeTrivia
+    public readonly amount: Token<'number'> | undefined,
+    public readonly minus: Token<'hyphen'> | undefined,
+    public readonly preCommodity: Group | undefined,
+    public readonly postCommodity: Group | undefined
   ) {
-    super('amount', trivia)
+    super('amount')
   }
 }
 
 export class Comment extends Node<'comment'> {
   static parse(parser: Parser): Result<Comment, ParseError> {
-    return parser.expect('comment').map(comment => {
-      let commentChar = comment.text[0]
-      let text = comment.text.slice(1)
-      let tags: Record<string, string | undefined> = {}
-      let typedTags: Record<string, unknown> = {}
+    return parser
+      .expect('comment')
+      .thenTap(() => parser.expectEndOfLine())
+      .map(comment => {
+        let commentChar = comment.innerText()[0]
+        let text = comment.innerText().slice(1)
+        let tags: Record<string, string | undefined> = {}
+        let typedTags: Record<string, unknown> = {}
 
-      return new Comment(comment, commentChar, text, tags, typedTags, trivia)
-    })
+        return new Comment(comment, commentChar, text, tags, typedTags)
+      })
   }
 
   constructor(
-    public comment: Token<'comment'> | Group | undefined,
-    public commentChar: string,
-    public text: string,
-    public tags: Record<string, string | undefined>,
-    public typedTags: Record<string, unknown> = {},
-    trivia: NodeTrivia
+    public readonly comment: Token<'comment'> | Group | undefined,
+    public readonly commentChar: string,
+    public readonly text: string,
+    public readonly tags: Record<string, string | undefined>,
+    public readonly typedTags: Record<string, unknown> = {}
   ) {
-    super('comment', trivia)
+    super('comment')
   }
 }
 
 export class AuxDate extends Node<'auxDate'> {
   static parse(parser: Parser): Result<AuxDate, ParseError> {
-    return parser.expect('equal').andThen(equal => {
-      return DateNode.parse(parser).map(date => {
-        return new AuxDate(equal, date, trivia)
-      })
-    })
+    return Result.all(
+      () => parser.expect('equal'),
+      () => DateNode.parse(parser)
+    ).map(([equal, date]) => new AuxDate(equal, date))
   }
 
-  constructor(public equal: Token<'equal'>, public date: DateNode, trivia: NodeTrivia) {
-    super('auxDate', trivia)
+  constructor(public readonly equal: Token<'equal'>, public readonly date: DateNode) {
+    super('auxDate')
   }
 }
 
@@ -154,384 +156,252 @@ export class Code extends Node<'code'> {
       () => parser.slurpUntil('rparen'),
       () => parser.expect('rparen')
     ).map(([lparen, contents, rparen]) => {
-      return new Code(lparen, contents, rparen, trivia)
+      return new Code(lparen, contents, rparen)
     })
   }
 
   constructor(
-    public lparen: Token<'lparen'>,
-    public contents: Group,
-    public rparen: Token<'rparen'>,
-    trivia: NodeTrivia
+    public readonly lparen: Token<'lparen'>,
+    public readonly contents: Group,
+    public readonly rparen: Token<'rparen'>
   ) {
-    super('code', trivia)
+    super('code')
   }
 }
 
 export class Transaction extends Node<'transaction'> {
   public static parse(parser: Parser): Result<Transaction, ParseError> {
-    let parsedDate = this.parseDate()
-    if (parsedDate.isErr()) {
-      return parsedDate
-    }
-
-    let date = parsedDate.unwrap()
-    let auxDate: AuxDate | undefined
-    let pending: Token<'bang'> | undefined
-    let cleared: Token<'star'> | undefined
-    let code: Code | undefined
-    let payee: Payee | undefined
     let comments: Comment[] = []
+    return Result.all(
+      () => DateNode.parse(parser),
+      () => parser.ifPeek('equal', () => AuxDate.parse(parser)),
+      () => parser.inlineSpace(),
+      () => parser.skipIf(['bang', 'star']),
+      () => parser.inlineSpace(),
+      () => parser.ifPeek('lparen', () => Code.parse(parser)),
+      () => parser.inlineSpace(),
+      () => parser.ifLineHasNext(() => Payee.parse(parser)),
+      () => parser.ifPeek('comment', () => Comment.parse(parser)),
+      () => parser.expectEndOfLine(),
+      () => this.parsePostings(parser, comments)
+    ).map(([date, auxDate, , flag, , code, , payee, comment, , postings]) => {
+      if (comment) comments.push(comment)
+      let cleared = flag?.type === 'star' ? (flag as Token<'star'>) : undefined
+      let pending = flag?.type === 'bang' ? (flag as Token<'bang'>) : undefined
+      return new Transaction(date, auxDate, cleared, pending, code, payee, comments, postings)
+    })
+  }
 
-    if (this.peekType('equal')) {
-      let equal = this.next() as Token<'equal'>
-      let date = this.parseDate()
-      if (date.isErr()) {
-        return date
-      }
-
-      auxDate = {
-        type: 'auxDate',
-        equal: equal,
-        date: date.unwrap(),
-      }
-    }
-
-    if (this.peekType('ws')) {
-      let flag = this.skipIf(['bang', 'star'])
-
-      if (flag) {
-        if (flag.type === 'bang') {
-          pending = flag as Token<'bang'>
-          cleared = this.skipIf('star')
-        } else if (flag.type === 'star') {
-          cleared = flag as Token<'star'>
-          pending = this.skipIf('bang')
-        }
-      }
-
-      if (this.peekType('lparen')) {
-        let parsedCode = this.parseCode()
-        if (parsedCode.isErr()) {
-          return parsedCode
-        }
-        code = parsedCode.unwrap()
-      }
-
-      let builder = new GroupBuilder().append(this.slurpUntil('ws', { and: isBigSpace }))
-      while (this.hasNext() && !this.peekType('newline') && !this.peekType('comment')) {
-        builder.append(this.slurpUntil('ws', { and: isBigSpace }))
-        if (this.peekType('ws')) {
-          builder.add(this.next()!)
-        }
-      }
-
-      let payeeGroup = builder.build()
-
-      if (payeeGroup) {
-        let payeeText = payeeGroup.toString().trim()
-        payee = { type: 'payee', name: payeeGroup }
-
-        if (!this.payees.has(payeeText)) {
-          this.payees.add(payeeText, payeeGroup.location)
-        }
-      }
-
-      if (this.peekType('comment')) {
-        let comment = this.parseComment()
-        if (comment.isErr()) {
-          return comment
-        }
-        comments.push(comment.unwrap())
-      }
-    }
-
-    let newline = this.expectEndOfLine()
-    if (newline.isErr()) {
-      return newline
-    }
-
+  private static parsePostings(parser: Parser, comments: Comment[]): Result<Posting[], ParseError> {
     let postings: Posting[] = []
 
-    while (parser.skipIf('ws')) {
-      if (parser.peekType('comment')) {
-        let comment = Comment.parse(parser)
-        let lastPosting = postings[postings.length - 1]
-        if (lastPosting) {
-          lastPosting.comments.push(comment)
-        } else {
-          comments.push(comment)
+    while (parser.nextIsIndented()) {
+      let next = parser.peek()
+      switch (next.type) {
+        case 'comment': {
+          let comment = Comment.parse(parser).thenTap(() => parser.expectEndOfLine())
+          if (comment.isErr()) {
+            return comment
+          }
+
+          let lastPosting = postings[postings.length - 1]
+          if (lastPosting) {
+            lastPosting.comments.push(comment.unwrap())
+          } else {
+            comments.push(comment.unwrap())
+          }
+
+          break
         }
-        continue
-      } else if (parser.skipIf('newline')) {
-        break
-      } else {
-        let posting = Posting.parse(parser)
-        if (posting.isErr()) {
-          return Result.err(posting.unwrapErr())
+        default: {
+          let posting = Posting.parse(parser).thenTap(() => parser.expectEndOfLine())
+
+          if (posting.isErr()) {
+            return posting
+          }
+          postings.push(posting.unwrap())
         }
-        postings.push(posting.unwrap())
       }
     }
 
-    return Result.ok(new Transaction(date, auxDate, cleared, pending, code, payee, comments, postings, trivia))
+    return Result.ok(postings)
   }
+
   constructor(
-    public date: DateNode,
-    public auxDate: AuxDate | undefined,
-    public cleared: Token<'star'> | undefined,
-    public pending: Token<'bang'> | undefined,
-    public code: Code | undefined,
-    public payee: Payee | undefined,
-    public comments: Comment[],
-    public postings: Posting[],
-    trivia: NodeTrivia
+    public readonly date: DateNode,
+    public readonly auxDate: AuxDate | undefined,
+    public readonly cleared: Token<'star'> | undefined,
+    public readonly pending: Token<'bang'> | undefined,
+    public readonly code: Code | undefined,
+    public readonly payee: Payee | undefined,
+    public readonly comments: Comment[],
+    public readonly postings: Posting[]
   ) {
-    super('transaction', trivia)
+    super('transaction')
   }
 }
 
 export class Posting extends Node<'posting'> {
+  public readonly comments: Comment[] = []
+
   public static parse(parser: Parser): Result<Posting, ParseError> {
-    let amount: Amount | undefined
-    let accountName = this.slurpUntil('ws', { and: isBigSpace })
-    let comments: Comment[] = []
-
-    if (!accountName) {
-      return Result.err(
-        new ParseError('Expected account name, but found nothing', 'INVALID_ACCOUNT', this.getPreviousLocation())
-      )
-    }
-
-    let account: AccountRef = {
-      type: 'accountRef',
-      name: accountName,
-    }
-
-    if (!this.accounts.has(accountName.toString())) {
-      this.accounts.add(accountName.toString(), accountName.location)
-    }
-
-    if (this.hasNext() && !this.peekType('newline')) {
-      let parsedAmount = this.parseAmount()
-      if (parsedAmount.isErr()) {
-        return parsedAmount
-      }
-      amount = parsedAmount.unwrap()
-    }
-
-    return this.expectEndOfLine().map(() => ({
-      type: 'posting',
-      comments,
-      account,
-      amount,
-    }))
+    return Result.all(
+      () => AccountRef.parse(parser),
+      () => parser.ifLineHasNext(() => Amount.parse(parser))
+    ).map(([account, amount]) => {
+      parser.declareAccount(account.name.innerText(), account.name.location)
+      return new Posting(account, amount)
+    })
   }
 
-  constructor(
-    public account: AccountRef,
-    public amount: Amount | undefined,
-    public comments: Comment[],
-    trivia: NodeTrivia
-  ) {
-    super('posting', trivia)
+  constructor(public readonly account: AccountRef, public readonly amount: Amount | undefined) {
+    super('posting')
   }
 }
 
 export class Directive extends Node<'directive'> {
-  static parse(parser: Parser): Result<Directive, ParseError> {
-    return parser.expect('identifier').andThen(identifier => {
-      switch (identifier.text) {
-        case 'alias':
-          return Alias.parse(parser)
-        case 'apply':
-          return Apply.parse(parser)
-        case 'comment':
-        case 'test':
-          return this.parseUntilEnd(identifier.text)
-        case 'end':
-          return End.parse(parser)
-        default:
-          return this.parseStandardDirective(identifier)
-      }
+  static parse(parser: Parser): Result<ASTChild, ParseError> {
+    let next = parser.peek()
+    if (next.type !== 'identifier') {
+      return Result.err(ParseError.unexpectedToken(parser.next(), ['identifier']))
+    }
+
+    switch (next.innerText()) {
+      case 'alias':
+        return Alias.parse(parser)
+      case 'apply':
+        return Apply.parse(parser)
+      case 'comment':
+      case 'test':
+        return CommentDirective.parse(parser)
+      case 'end':
+        return End.parse(parser)
+      default:
+        return this.parseStandardDirective(parser)
+    }
+  }
+
+  private static parseStandardDirective(parser: Parser): Result<Directive, ParseError> {
+    return Result.all(
+      () => parser.expect('identifier'),
+      () => parser.slurpOpt(),
+      () => parser.expectEndOfLine(),
+      () => this.parseSubdirectives(parser)
+    ).map(([name, arg, , subDirectives]) => {
+      return new Directive(name, arg, subDirectives)
     })
   }
 
-  private static parseStandardDirective(name: Token<'identifier'>): Result<Directive, ParseError> {
-    let arg: Group | undefined
-
-    if (this.hasNext() && !this.peekType('newline')) {
-      arg = this.slurp()
-    }
-
-    return this.expectEndOfLine()
-      .andThen(this.parseSubdirectives.bind(this))
-      .map(subDirectives => ({
-        type: 'directive',
-        name,
-        arg,
-        subDirectives,
-      }))
-  }
-
   private static parseSubdirectives(parser: Parser): Result<SubDirective[], ParseError> {
-    let subDirectives: SubDirective[] = []
-
-    while (parser.skipIf('ws')) {
-      let next = SubDirective.parse(parser)
-      if (next.isErr()) {
-        return next
-      }
-      subDirectives.push(next.unwrap())
-    }
-
-    return Result.ok(subDirectives)
-  }
-
-  private static parseUntilEnd(name: string): Result<ASTChild, ParseError> {
-    let newline = this.expect('newline')
-    if (newline.isErr()) {
-      return newline
-    }
-
-    let seen = new GroupBuilder()
-
-    while (this.hasNext()) {
-      let previousType = this.lexer.previous()?.type
-      let next = this.next()
-      if (next.type === 'identifier' && next.text === 'end' && previousType === 'newline') {
-        let ws = this.skipIf('ws')
-        let next2 = this.next()
-        if (next2.type === 'identifier' && ['comment', 'test'].includes(next2.text)) {
-          let comment = seen.build()
-          return Result.ok({
-            type: 'comment',
-            comment,
-            commentChar: name,
-            text: comment?.toString() ?? '',
-            tags: {},
-            typedTags: {},
-          })
-        } else {
-          seen.add(next)
-          if (ws) {
-            seen.add(ws)
-          }
-          if (next2) {
-            seen.add(next2)
-          }
-        }
-      } else {
-        seen.add(next)
-      }
-    }
-
-    return Result.err(ParseError.unexpectedEOF(this.getPreviousLocation(), ['identifier']))
+    return parser.whileIndented(() => SubDirective.parse(parser))
   }
 
   constructor(
-    public name: Token<'identifier'>,
-    public arg: Group | undefined,
-    public subDirectives: SubDirective[],
-    trivia: NodeTrivia
+    public readonly name: Token<'identifier'>,
+    public readonly arg: Group | undefined,
+    public readonly subDirectives: SubDirective[]
   ) {
-    super('directive', trivia)
+    super('directive')
+  }
+}
+
+export class CommentDirective extends Node<'commentDirective'> {
+  public static parse(parser: Parser): Result<CommentDirective, ParseError> {
+    return Result.all(
+      () => parser.expect('identifier'),
+      () => parser.expectEndOfLine(),
+      name => parser.untilSequence('end', name.innerText())
+    ).map(([name, newline, [body, end, endName]]) => {
+      let bodyStr = body ? `${newline.trailingSpace}${body.outerText()}` : ''
+      return new CommentDirective(name, bodyStr, end, endName)
+    })
+  }
+
+  constructor(
+    public readonly startName: Token<'identifier'>,
+    public readonly body: string,
+    public readonly end: Token<'identifier'>,
+    public readonly endName: Token<'identifier'>
+  ) {
+    super('commentDirective')
   }
 }
 
 export class SubDirective extends Node<'subDirective'> {
   public static parse(parser: Parser): Result<SubDirective, ParseError> {
-    return this.expect('identifier').andThen(key => {
-      let value: Group | undefined
-      if (this.hasNext() && !this.peekType('newline')) {
-        value = this.slurpUntil('newline')
-      }
-
-      let end = this.expectEndOfLine()
-      if (end.isErr()) {
-        return end
-      }
-
-      return Result.ok({
-        type: 'subDirective',
-        key,
-        value,
-      })
-    })
+    return Result.all(
+      () => parser.expect('identifier'),
+      () => parser.slurpOpt()
+    ).map(([key, value]) => new SubDirective(key, value))
   }
 
-  constructor(public key: Token<'identifier'>, public value: Group | undefined, trivia: NodeTrivia) {
-    super('subDirective', trivia)
+  constructor(public readonly key: Token<'identifier'>, public readonly value: Group | undefined) {
+    super('subDirective')
   }
 }
 
 export class Apply extends Node<'apply'> {
   public static parse(parser: Parser): Result<Apply, ParseError> {
-    return this.expect('identifier').andThen(name => {
-      let args: Group | undefined
-      if (this.hasNext() && !this.peekType('newline')) {
-        args = this.slurpUntil('newline')
-      }
-
-      return this.expectEndOfLine().map(() => ({
-        type: 'apply',
-        apply,
-        name,
-        args,
-        subDirectives: [],
-      }))
+    return Result.all(
+      () => parser.expect('identifier'),
+      () => parser.expect('identifier'),
+      () => parser.slurpOpt(),
+      () => parser.expectEndOfLine()
+    ).map(([apply, name, args]) => {
+      return new Apply(apply, name, args)
     })
   }
 
   constructor(
-    public apply: Token<'identifier'>,
-    public name: Token<'identifier'>,
-    public args: Group | undefined,
-    trivia: NodeTrivia
+    public readonly apply: Token<'identifier'>,
+    public readonly name: Token<'identifier'>,
+    public readonly args: Group | undefined
   ) {
-    super('apply', trivia)
+    super('apply')
   }
 }
 
 export class End extends Node<'end'> {
   public static parse(parser: Parser): Result<End, ParseError> {
-    return parser.expect('identifier').andThen(name => {
-      return this.expectEndOfLine().map(() => ({
-        type: 'end',
-        end,
-        name,
-      }))
+    return Result.all(
+      () => parser.expectIdentifier('end'),
+      () => parser.skipIfIdentifier('apply'),
+      () => parser.expect('identifier'),
+      () => parser.expectEndOfLine()
+    ).map(([end, apply, name]) => {
+      return new End(end, apply, name)
     })
   }
 
-  constructor(public end: Token<'identifier'>, public name: Token<'identifier'>, trivia: NodeTrivia) {
-    super('end', trivia)
+  constructor(
+    public readonly end: Token<'identifier'>,
+    public readonly apply: Token<'identifier'> | undefined,
+    public readonly name: Token<'identifier'>
+  ) {
+    super('end')
   }
 }
 
 export class Alias extends Node<'alias'> {
   public static parse(parser: Parser): Result<Alias, ParseError> {
-    let name = this.slurpUntil('equal')
-    let eq = this.skipIf('equal')
-    let value = this.slurp()
-
-    return this.expectEndOfLine().map(() => ({
-      type: 'alias',
-      alias,
-      name,
-      eq,
-      value,
-    }))
+    return Result.all(
+      () => parser.expectIdentifier('alias'),
+      () => parser.slurpUntil('equal'),
+      () => parser.expect('equal'),
+      () => parser.slurp(),
+      () => parser.expectEndOfLine()
+    ).map(([alias, name, eq, value]) => {
+      return new Alias(alias, name, eq, value)
+    })
   }
 
   constructor(
-    public alias: Token<'identifier'>,
-    public name: Group,
-    public eq: Token<'equal'> | undefined,
-    public value: Group | undefined,
-    trivia: NodeTrivia
+    public readonly alias: Token<'identifier'>,
+    public readonly name: Group,
+    public readonly eq: Token<'equal'>,
+    public readonly value: Group
   ) {
-    super('alias', trivia)
+    super('alias')
   }
 }
 
@@ -540,40 +410,43 @@ export class File extends Node<'file'> {
     let children: ASTChild[] = []
 
     while (parser.hasNext()) {
-      switch (parser.peek().type) {
+      let next = parser.peek()
+      let result: Result<ASTChild, ParseError>
+
+      if (parser.nextIsIndented()) {
+        let err = ParseError.leadingSpace(next)
+        parser.synchronize(err)
+        continue
+      }
+
+      switch (next.type) {
         case 'number':
-          this.tryParse(Transaction.parse(parser))
+          result = Transaction.parse(parser)
           break
         case 'comment':
-          this.tryParse(Comment.parse(parser))
+          result = Comment.parse(parser)
           break
         case 'identifier':
-          this.tryParse(Directive.parse(parser))
+          result = Directive.parse(parser)
           break
         default:
           parser.synchronize(ParseError.unexpectedToken(parser.next()))
+          continue
+      }
+
+      if (result.isOk()) {
+        children.push(result.unwrap())
+      } else {
+        parser.synchronize(result.unwrapErr())
       }
     }
 
-    return new File(children, trivia)
+    return new File(children)
   }
 
-  constructor(public children: ASTChild[], trivia: NodeTrivia) {
-    super('file', trivia)
+  constructor(public readonly children: ASTChild[]) {
+    super('file')
   }
 }
 
-export type ASTChild = Transaction | Directive | Comment | Apply | End | Alias
-
-export interface AST {
-  children: ASTChild[]
-}
-
-/**
- * Checks if the token is a "big space", which is defined as two or more spaces or a tab. This is important for postings, which must separate account names from amounts in this way
- * @param token The token to check. It is assumed to be a whitespace token.
- * @returns True if the token is a big space, false otherwise
- */
-function isBigSpace(token: Token): boolean {
-  return /^ {2,}|\t$/.test(token.text)
-}
+export type ASTChild = Transaction | Directive | Comment | Apply | End | Alias | CommentDirective

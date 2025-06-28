@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Parser } from '../src/parser'
 import { Lexer } from '../src/lexer'
-import { AST, ASTChild, Transaction, Posting, Directive, SubDirective } from '../src/node'
+import { ASTChild, Transaction, Posting, Directive, SubDirective, File } from '../src/node'
 
 function parse(input: string) {
   let lexer = new Lexer(input)
@@ -11,11 +11,11 @@ function parse(input: string) {
 
 function parseTransaction(input: string): Transaction {
   let result = parse(input)
-  let { ast } = result
-  let tx = getChild(ast, 0, 'transaction')
+  let { file } = result
+  let tx = getChild(file, 0, 'transaction')
 
   expect(result).not.toHaveDiagnostic()
-  expect(ast.children).toHaveLength(1)
+  expect(file.children).toHaveLength(1)
   expect(tx).toHaveProperty('type', 'transaction')
 
   return tx as Transaction
@@ -29,29 +29,32 @@ function parsePosting(input: string): Posting {
 
 function parseDirective(input: string): Directive {
   let result = parse(input)
-  let { ast } = result
+  let { file } = result
   expect(result).not.toHaveDiagnostic()
-  expect(ast.children).toHaveLength(1)
+  expect(file.children).toHaveLength(1)
 
-  let directive = getChild(ast, 0, 'directive')
+  let directive = getChild(file, 0, 'directive')
   expect(directive).toHaveProperty('type', 'directive')
 
   return directive
 }
 
 function getChild<T extends ASTChild['type']>(
-  ast: AST,
+  file: File,
   index: number,
   type: T
-): Extract<AST['children'][number], { type: T }> {
-  let child = ast.children[index]
-  expect(child).toBeDefined()
-  expect(child).toHaveProperty('type', type)
-  return child as Extract<AST['children'][number], { type: T }>
+): Extract<File['children'][number], { type: T }> {
+  let child = file.children[index]
+  expect(child, `Expected child at index ${index} to exist, but it didn't.`).toBeDefined()
+  expect(child, `Expected child at index ${index} to have type ${type}, but it was ${child.type}`).toHaveProperty(
+    'type',
+    type
+  )
+  return child as Extract<File['children'][number], { type: T }>
 }
 
 function getSubDirective(directive: Directive, key: string): SubDirective {
-  let subDirective = directive.subDirectives.find(d => d.key.toString() === key)
+  let subDirective = directive.subDirectives.find(d => d.key.innerText() === key)
   expect(subDirective).toBeDefined()
   return subDirective!
 }
@@ -101,7 +104,7 @@ describe('Ledger Parser', () => {
 
   it('fails to parse transactions beginning with whitespace', () => {
     let input = '  2024-06-12 Test Payee'
-    expect(input).failsToParse(/Unexpected token/i)
+    expect(input).failsToParse(/leading space/i)
   })
 })
 
@@ -150,7 +153,7 @@ describe('Dates', () => {
 
   it('fails to parse dates with non-numeric characters', () => {
     let input = formatTransaction({ date: '2024-06-12abc' })
-    expect(input).failsToParse(/abc/)
+    expect(input).failsToParse(/unexpected token/i)
   })
 
   it('fails to parse dates with decimal points', () => {
@@ -201,22 +204,14 @@ describe('transaction flags', () => {
   })
 
   describe('multiple flags', () => {
-    it('parses transactions with both flags, cleared first', () => {
+    it('fails to parse transactions with both flags, cleared first', () => {
       let input = '2024-06-12 *! Test Payee'
-      let tx = parseTransaction(input)
-
-      expect(tx).toBePending()
-      expect(tx).toBeCleared()
-      expect(tx).toHavePayee('Test Payee')
+      expect(input).failsToParse(/Unexpected token/i)
     })
 
     it('parses transactions with both flags, pending first', () => {
       let input = '2024-06-12 !* Test Payee'
-      let tx = parseTransaction(input)
-
-      expect(tx).toBeCleared()
-      expect(tx).toBePending()
-      expect(tx).toHavePayee('Test Payee')
+      expect(input).failsToParse(/Unexpected token/i)
     })
   })
 })
@@ -344,7 +339,7 @@ describe('postings', () => {
     expect(posting).not.toHaveCommodity()
   })
 
-  it('parses postings with no amounts but traling spaces', () => {
+  it('parses postings with no amounts but trailing spaces', () => {
     let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking', amount: '   ' }] })
     let posting = parsePosting(input)
 
@@ -401,8 +396,8 @@ describe('postings', () => {
 describe('comments', () => {
   it.for(['#', ';', '%', '|', '*'])("parses comments starting with '%s'", (commentChar: string) => {
     let input = `${commentChar} This is a comment`
-    let { ast } = parse(input)
-    let comment = getChild(ast, 0, 'comment')
+    let { file } = parse(input)
+    let comment = getChild(file, 0, 'comment')
 
     expect(comment.text).toBe(input.substring(1))
     expect(comment.commentChar).toBe(commentChar)
@@ -410,29 +405,29 @@ describe('comments', () => {
 
   it('parses transactions after comments', () => {
     let input = `# This is a comment\n2024-06-12 Test Payee`
-    let { ast } = parse(input)
-    let comment = getChild(ast, 0, 'comment')
-    let tx = getChild(ast, 1, 'transaction')
+    let { file } = parse(input)
+    let comment = getChild(file, 0, 'comment')
+    let tx = getChild(file, 1, 'transaction')
 
-    expect(comment.comment?.toString()).toBe('# This is a comment')
+    expect(comment.comment?.innerText()).toBe('# This is a comment')
     expect(tx).toHaveDate('2024-06-12')
     expect(tx).toHavePayee('Test Payee')
   })
 
   it('ends transactions with un-indented comments', () => {
     let input = `2024-06-12 Test Payee\n; This is a comment\n  Accounts:Checking $100.00`
-    let { ast, diagnostics } = parse(input)
+    let { file, diagnostics } = parse(input)
 
-    expect(diagnostics).toHaveLength(2)
-    expect(ast.children).toHaveLength(2)
+    expect(diagnostics).toHaveLength(1)
+    expect(file.children).toHaveLength(2)
 
-    let tx = getChild(ast, 0, 'transaction')
-    let comment = getChild(ast, 1, 'comment')
+    let tx = getChild(file, 0, 'transaction')
+    let comment = getChild(file, 1, 'comment')
 
     expect(tx).toHaveDate('2024-06-12')
     expect(tx).toHavePayee('Test Payee')
-    expect(comment.comment?.toString()).toBe('; This is a comment')
-    expect(diagnostics[0].message).toContain('Unexpected token')
+    expect(comment.comment?.innerText()).toBe('; This is a comment')
+    expect(diagnostics[0].message).toMatch(/leading space/i)
   })
 
   it('parses comments on the same line as a transaction', () => {
@@ -476,57 +471,51 @@ describe('comments', () => {
 
   it('parses comment directives', () => {
     let input = `comment\n  This is a comment\nAnd this is another\nend comment`
-    let { ast } = parse(input)
-    let comment = getChild(ast, 0, 'comment')
+    let { file } = parse(input)
+    let comment = getChild(file, 0, 'commentDirective')
 
-    expect(comment.commentChar).toBe('comment')
-    expect(comment.text).toBe('  This is a comment\nAnd this is another\n')
+    expect(comment.startName.innerText()).toBe('comment')
+    expect(comment.body).toBe('  This is a comment\nAnd this is another\n')
   })
 
   it('parses test directives', () => {
     let input = `test\n  This is a test comment\nend test`
-    let { ast } = parse(input)
-    let comment = getChild(ast, 0, 'comment')
+    let { file } = parse(input)
+    let comment = getChild(file, 0, 'commentDirective')
 
-    expect(comment.commentChar).toBe('test')
-    expect(comment.text).toBe('  This is a test comment\n')
+    expect(comment.startName.innerText()).toBe('test')
+    expect(comment.body).toBe('  This is a test comment\n')
   })
 
   it('skips over arbitrary "end" tokens in comments', () => {
     let input = `comment\n  This is a false "end comment"\nend comment`
-    let { ast } = parse(input)
-    let comment = getChild(ast, 0, 'comment')
+    let { file } = parse(input)
+    let comment = getChild(file, 0, 'commentDirective')
 
-    expect(comment.commentChar).toBe('comment')
-    expect(comment.text).toContain('"end comment"')
+    expect(comment.startName.innerText()).toBe('comment')
+    expect(comment.body).toContain('"end comment"')
+    expect(comment.end).toBeDefined()
+    expect(comment.endName.innerText()).toBe('comment')
   })
 
-  it('accepts "end test" when comment began with "comment"', () => {
+  it('rejects "end test" when comment began with "comment"', () => {
     let input = `comment\n  This is a comment\nend test`
-    let { ast } = parse(input)
-    let comment = getChild(ast, 0, 'comment')
-
-    expect(comment.commentChar).toBe('comment')
-    expect(comment.text).toBe('  This is a comment\n')
+    expect(input).failsToParse(/unexpected end of file/i)
   })
 
-  it('accepts "end comment" when comment began with "test"', () => {
+  it('rejects "end comment" when comment began with "test"', () => {
     let input = `test\n  This is a comment\nend comment`
-    let { ast } = parse(input)
-    let comment = getChild(ast, 0, 'comment')
-
-    expect(comment.commentChar).toBe('test')
-    expect(comment.text).toBe('  This is a comment\n')
+    expect(input).failsToParse(/unexpected end of file/i)
   })
 })
 
 describe('panic mode', () => {
-  it('recovers from unexpected tokens', () => {
+  it('does not crash on unexpected tokens', () => {
     let input = '2024-06-12 Test Payee\n$100.00'
     let result = parse(input)
 
     expect(result).toHaveDiagnostic(/Unexpected token/i)
-    expect(result.ast.children).toHaveLength(1)
+    expect(result.file.children).toHaveLength(1)
   })
 
   it('continues parsing after an error', () => {
@@ -534,9 +523,9 @@ describe('panic mode', () => {
     let result = parse(input)
 
     expect(result).toHaveDiagnostic(/Unexpected token/i)
-    expect(result.ast.children).toHaveLength(2)
+    expect(result.file.children).toHaveLength(2)
 
-    let tx = getChild(result.ast, 1, 'transaction')
+    let tx = getChild(result.file, 1, 'transaction')
     expect(tx).toHavePayee('Another Payee')
   })
 })
@@ -544,32 +533,32 @@ describe('panic mode', () => {
 describe('directives', () => {
   it('parses a directive without an argument', () => {
     let input = 'year'
-    let { ast } = parse(input)
-    let directive = getChild(ast, 0, 'directive')
+    let { file } = parse(input)
+    let directive = getChild(file, 0, 'directive')
 
-    expect(directive.name.toString()).toBe('year')
+    expect(directive.name.innerText()).toBe('year')
     expect(directive.arg).toBeUndefined()
   })
 
   it('parses a directive with an argument', () => {
     let input = 'account Assets:Bank:Checking'
-    let { ast } = parse(input)
-    let directive = getChild(ast, 0, 'directive')
+    let { file } = parse(input)
+    let directive = getChild(file, 0, 'directive')
 
-    expect(directive.name.toString()).toBe('account')
-    expect(directive.arg?.toString()).toBe('Assets:Bank:Checking')
+    expect(directive.name.innerText()).toBe('account')
+    expect(directive.arg?.innerText()).toBe('Assets:Bank:Checking')
   })
 
   it('parses directives with sub-directives', () => {
     let input = 'account Assets:Bank:Checking\n  alias Checking'
-    let { ast } = parse(input)
-    let directive = getChild(ast, 0, 'directive')
+    let { file } = parse(input)
+    let directive = getChild(file, 0, 'directive')
 
     expect(directive.subDirectives).toHaveLength(1)
 
     let subDirective = directive.subDirectives[0]
-    expect(subDirective.key.toString()).toBe('alias')
-    expect(subDirective.value?.toString()).toBe('Checking')
+    expect(subDirective.key.innerText()).toBe('alias')
+    expect(subDirective.value?.innerText()).toBe('Checking')
   })
 
   it('parses sub-directive values with spaces in them', () => {
@@ -577,8 +566,8 @@ describe('directives', () => {
     let directive = parseDirective(input)
     let alias = getSubDirective(directive, 'alias')
 
-    expect(alias.key.text).toBe('alias')
-    expect(alias.value?.toString()).toBe('Bar Baz')
+    expect(alias.key.innerText()).toBe('alias')
+    expect(alias.value?.innerText()).toBe('Bar Baz')
   })
 
   it('parses sub-directives with big spaces', () => {
@@ -586,8 +575,8 @@ describe('directives', () => {
     let directive = parseDirective(input)
     let alias = getSubDirective(directive, 'alias')
 
-    expect(alias.key.text).toBe('alias')
-    expect(alias.value?.toString()).toBe('Bar   Baz')
+    expect(alias.key.innerText()).toBe('alias')
+    expect(alias.value?.innerText()).toBe('Bar   Baz')
   })
 
   it('parses sub-directives with special characters', () => {
@@ -595,113 +584,109 @@ describe('directives', () => {
     let directive = parseDirective(input)
     let alias = getSubDirective(directive, 'alias')
 
-    expect(alias.key.text).toBe('alias')
-    expect(alias.value?.toString()).toBe('Bar#^%!@&Baz')
+    expect(alias.key.innerText()).toBe('alias')
+    expect(alias.value?.innerText()).toBe('Bar#^%!@&Baz')
   })
 
   it('parses apply directives', () => {
     let input = 'apply Foo'
-    let { ast } = parse(input)
-    let apply = getChild(ast, 0, 'apply')
+    let { file } = parse(input)
+    let apply = getChild(file, 0, 'apply')
 
-    expect(apply.apply.toString()).toBe('apply')
-    expect(apply.name.toString()).toBe('Foo')
+    expect(apply.apply.innerText()).toBe('apply')
+    expect(apply.name.innerText()).toBe('Foo')
     expect(apply.args).toBeUndefined()
   })
 
   it('parses apply directives with arguments', () => {
     let input = 'apply Foo bar baz'
-    let { ast } = parse(input)
-    let apply = getChild(ast, 0, 'apply')
+    let { file } = parse(input)
+    let apply = getChild(file, 0, 'apply')
 
-    expect(apply.apply.toString()).toBe('apply')
-    expect(apply.name.toString()).toBe('Foo')
-    expect(apply.args?.toString()).toBe('bar baz')
+    expect(apply.apply.innerText()).toBe('apply')
+    expect(apply.name.innerText()).toBe('Foo')
+    expect(apply.args?.innerText()).toBe('bar baz')
   })
 
   it('parses end directives', () => {
     let input = 'end Foo'
-    let { ast } = parse(input)
-    let end = getChild(ast, 0, 'end')
+    let { file } = parse(input)
+    let end = getChild(file, 0, 'end')
 
-    expect(end.end.toString()).toBe('end')
-    expect(end.name.toString()).toBe('Foo')
+    expect(end.end.innerText()).toBe('end')
+    expect(end.name.innerText()).toBe('Foo')
+  })
+
+  it('parses end apply directives', () => {
+    let input = 'end apply Foo'
+    let { file } = parse(input)
+    let endApply = getChild(file, 0, 'end')
+
+    expect(endApply.end.innerText()).toBe('end')
+    expect(endApply.apply?.innerText()).toBe('apply')
+    expect(endApply.name.innerText()).toBe('Foo')
   })
 
   it('parses alias directives', () => {
     let input = 'alias Foo=Bar'
-    let { ast } = parse(input)
-    let alias = getChild(ast, 0, 'alias')
+    let { file } = parse(input)
+    let alias = getChild(file, 0, 'alias')
 
-    expect(alias.alias.toString()).toBe('alias')
-    expect(alias.name?.toString()).toBe('Foo')
-    expect(alias.value?.toString()).toBe('Bar')
+    expect(alias.alias.innerText()).toBe('alias')
+    expect(alias.name?.innerText()).toBe('Foo')
+    expect(alias.value?.innerText()).toBe('Bar')
   })
 
   it('parses alias directives with special characters', () => {
     let input = 'alias Foo#^%!@&=Bar#^%!@&'
-    let { ast } = parse(input)
-    let alias = getChild(ast, 0, 'alias')
+    let { file } = parse(input)
+    let alias = getChild(file, 0, 'alias')
 
-    expect(alias.name?.toString()).toBe('Foo#^%!@&')
-    expect(alias.value?.toString()).toBe('Bar#^%!@&')
+    expect(alias.name?.innerText()).toBe('Foo#^%!@&')
+    expect(alias.value?.innerText()).toBe('Bar#^%!@&')
   })
 
   it('parses alias directives with spaces in the source & target', () => {
     let input = 'alias Foo Bar=Bar Baz'
-    let { ast } = parse(input)
-    let alias = getChild(ast, 0, 'alias')
+    let { file } = parse(input)
+    let alias = getChild(file, 0, 'alias')
 
-    expect(alias.name?.toString()).toBe('Foo Bar')
-    expect(alias.value?.toString()).toBe('Bar Baz')
+    expect(alias.name?.innerText()).toBe('Foo Bar')
+    expect(alias.value?.innerText()).toBe('Bar Baz')
   })
 
-  it('parses alias with a blank left hand side', () => {
+  it('fails to parse alias with a blank left hand side', () => {
     let input = 'alias =Bar Baz'
-    let { ast } = parse(input)
-    let alias = getChild(ast, 0, 'alias')
-
-    expect(alias.name).toBeUndefined()
-    expect(alias.value?.toString()).toBe('Bar Baz')
+    expect(input).failsToParse(/Unexpected token/i)
   })
 
   it('parses alias directives with a blank right hand side', () => {
     let input = 'alias Foo='
-    let { ast } = parse(input)
-    let alias = getChild(ast, 0, 'alias')
-
-    expect(alias.name?.toString()).toBe('Foo')
-    expect(alias.value).toBeUndefined()
+    expect(input).failsToParse(/Unexpected end of file/i)
   })
 
   it('parses blank alias directives', () => {
     let input = 'alias'
-    let { ast } = parse(input)
-    let alias = getChild(ast, 0, 'alias')
-
-    expect(alias.alias.toString()).toBe('alias')
-    expect(alias.name).toBeUndefined()
-    expect(alias.eq).toBeUndefined()
-    expect(alias.value).toBeUndefined()
+    expect(input).failsToParse(/Unexpected end of file/i)
   })
 
   it('parses alias directives containing = signs', () => {
     let input = 'alias Foo=Bar=Baz'
-    let { ast } = parse(input)
-    let alias = getChild(ast, 0, 'alias')
+    let { file } = parse(input)
+    let alias = getChild(file, 0, 'alias')
 
-    expect(alias.name?.toString()).toBe('Foo')
-    expect(alias.eq?.toString()).toBe('=') // The equal sign is still present
-    expect(alias.value?.toString()).toBe('Bar=Baz')
+    expect(alias.name?.innerText()).toBe('Foo')
+    expect(alias.eq?.innerText()).toBe('=') // The equal sign is still present
+    expect(alias.value?.innerText()).toBe('Bar=Baz')
   })
 
   it('parses alias directives with spaces around the = sign', () => {
     let input = 'alias Foo = Bar'
-    let { ast } = parse(input)
-    let alias = getChild(ast, 0, 'alias')
+    let { file } = parse(input)
+    let alias = getChild(file, 0, 'alias')
 
-    expect(alias.name?.toString()).toBe('Foo ')
-    expect(alias.eq?.toString()).toBe('=')
-    expect(alias.value?.toString()).toBe(' Bar')
+    expect(alias.name?.innerText()).toBe('Foo')
+    expect(alias.eq?.innerText()).toBe('=')
+    expect(alias.value?.innerText()).toBe('Bar')
   })
 })

@@ -29,8 +29,8 @@ type MooToken<T extends MooTokenType = MooTokenType> = moo.Token<typeof LEDGER_R
 export type TokenType = Omit<MooTokenType, 'ws'> | 'eof'
 export class Token<T extends TokenType = TokenType> {
   private leadingSpace: string
-  private trailingSpace: string
   private text: string
+  public readonly trailingSpace: string
   public readonly location: Location
   public readonly type: T
 
@@ -52,7 +52,6 @@ export class Token<T extends TokenType = TokenType> {
     let t = new Token<T>(fakeToken)
 
     t.leadingSpace = leadingSpace?.text ?? ''
-    t.trailingSpace = ''
     return t
   }
 
@@ -79,6 +78,26 @@ export class Token<T extends TokenType = TokenType> {
   public outerLength(): number {
     return this.text.length + this.leadingSpace.length + this.trailingSpace.length
   }
+
+  public beginsWithSpace(): boolean {
+    return this.leadingSpace.length > 0
+  }
+
+  public endsWithSpace(): boolean {
+    return this.trailingSpace.length > 0
+  }
+
+  public beginsWithHardSpace(): boolean {
+    return isHardSpace(this.leadingSpace)
+  }
+
+  public endsWithHardSpace(): boolean {
+    return isHardSpace(this.trailingSpace)
+  }
+}
+
+function isHardSpace(s: string): boolean {
+  return /\t| {2,}/.test(s)
 }
 
 export class Lexer {

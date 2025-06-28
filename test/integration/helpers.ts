@@ -103,13 +103,13 @@ export async function runLedger(posting: Posting): Promise<Comparison> {
   let lexer = new Lexer(tx)
   let lspOutput: Entry[] = new Parser(lexer)
     .parse()
-    .ast.children.filter(child => child.type === 'transaction')
+    .file.children.filter(child => child.type === 'transaction')
     .map(child => ({
       date: child.date.raw.toString(),
-      payee: tokensToString(child.payee?.name),
+      payee: tokensToString(child.payee?.group),
       account: tokensToString(child.postings[0].account.name),
-      commodity: tokensToString(child.postings[0].amount?.commodity),
-      amount: parseFloat(child.postings[0].amount?.amount.toString() ?? '0'),
+      commodity: tokensToString(child.postings[0].amount?.preCommodity ?? child.postings[0].amount?.postCommodity),
+      amount: parseFloat(child.postings[0].amount?.amount?.innerText() ?? '0'),
     }))
 
   return {
@@ -119,5 +119,5 @@ export async function runLedger(posting: Posting): Promise<Comparison> {
 }
 
 function tokensToString(group: Group | undefined): string {
-  return group?.toString() ?? ''
+  return group?.innerText() ?? ''
 }

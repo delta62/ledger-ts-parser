@@ -53,11 +53,53 @@ export class Group {
   }
 
   public get location(): Location {
-    return {
-      line: this.tokens[0].line,
-      column: this.tokens[0].col,
-      offset: this.tokens[0].offset,
+    return this.tokens[0].location
+  }
+
+  public innerText(): string {
+    if (this.tokens.length < 2) {
+      return this.tokens[0].innerText()
     }
+
+    return this.tokens.reduce((acc, token, i) => {
+      if (i === 0) {
+        return acc + token.outerText().trimStart()
+      }
+
+      if (i === this.tokens.length - 1) {
+        return acc + token.outerText().trimEnd()
+      }
+
+      return acc + token.outerText()
+    }, '')
+  }
+
+  public outerText(): string {
+    return this.tokens.map(t => t.outerText()).join('')
+  }
+
+  public innerLength(): number {
+    return this.innerText().length
+  }
+
+  public outerLength(): number {
+    return this.outerText().length
+  }
+
+  public beginsWithSpace(): boolean {
+    return this.tokens[0].beginsWithSpace()
+  }
+
+  public endsWithSpace(): boolean {
+    return this.tokens[this.tokens.length - 1].endsWithSpace()
+  }
+
+  public beginsWithHardSpace(): boolean {
+    return this.tokens[0].beginsWithHardSpace()
+  }
+
+  public endsWithHardSpace(): boolean {
+    return this.tokens[this.tokens.length - 1].endsWithHardSpace()
   }
 
   public push(token: Token) {
@@ -71,10 +113,6 @@ export class Group {
     }
 
     return newGroup
-  }
-
-  public toString() {
-    return this.tokens.map(t => t.text).join('')
   }
 
   public [Symbol.iterator]() {

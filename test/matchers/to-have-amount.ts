@@ -1,5 +1,5 @@
 import { expect } from 'vitest'
-import type { Posting } from '../../src'
+import type { Posting } from '../../src/node'
 import type { Matcher } from '../types'
 
 let toHaveAmount: Matcher = (received: Posting, amount?: string) => {
@@ -21,7 +21,7 @@ let toHaveAmount: Matcher = (received: Posting, amount?: string) => {
   }
 
   let sign = received.amount?.minus ? '-' : ''
-  let amountStr = `${sign}${received.amount?.amount}`
+  let amountStr = `${sign}${received.amount?.amount?.innerText()}`
   let pass = amountStr === amount
 
   let message = () => {

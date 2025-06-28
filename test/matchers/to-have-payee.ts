@@ -1,8 +1,8 @@
 import { expect } from 'vitest'
-import { Transaction } from '../../src'
+import type { Transaction } from '../../src/node'
 
 export function toHavePayee(received: Transaction, name?: string) {
-  let payeeName = received.payee?.name?.toString()
+  let payeeName = received.payee?.group.innerText()
   let pass: boolean
 
   if (name === undefined) {

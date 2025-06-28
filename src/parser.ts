@@ -1,11 +1,10 @@
-import Lexer, { Token, MooTokenType } from './lexer'
+import Lexer, { Token, TokenType } from './lexer'
 import { SymbolTable } from './symbol-table'
 import { ParseError } from './parse-error'
 import { Result } from './result'
-import { File, Trivia } from './node'
+import { File } from './node'
 import { Group, GroupBuilder } from './group'
 import { TupleToUnion } from './types'
-import { ok, unimplemented } from './util'
 import { Location, getLocation, defaultLocation } from './location'
 
 export interface ParserResult {
@@ -19,7 +18,6 @@ export class Parser {
   private accounts = new SymbolTable()
   private payees = new SymbolTable()
   private diagnostics: ParseError[] = []
-  private triviaBuffer: Trivia[] = []
 
   constructor(private lexer: Lexer) {}
 
@@ -48,61 +46,67 @@ export class Parser {
 
   public synchronize(err: ParseError): void {
     this.diagnostics.push(err)
-    unimplemented()
+
+    while (this.hasNext()) {
+      let previous = this.lexer.previous()
+      let next = this.peek()
+
+      let newline = (previous?.type ?? 'newline') === 'newline'
+      let indented = previous?.endsWithSpace() || next.beginsWithSpace()
+
+      if (newline && !indented) {
+        break
+      } else {
+        this.next()
+      }
+    }
   }
 
   public skipIf(): Token | undefined
-  public skipIf<T extends MooTokenType>(type: T): Token<T> | undefined
-  public skipIf<T extends readonly MooTokenType[]>(types: T): Token<TupleToUnion<T>> | undefined
-  public skipIf(types?: MooTokenType | MooTokenType[]): Token | undefined {
+  public skipIf<T extends TokenType>(type: T): Token<T> | undefined
+  public skipIf<T extends readonly TokenType[]>(types: T): Token<TupleToUnion<T>> | undefined
+  public skipIf(types?: TokenType | TokenType[]): Token | undefined {
     let nextType = this.peek().type
     let acceptedTypes = Array.isArray(types) ? types : [types]
 
     if (acceptedTypes.includes(nextType)) {
       return this.next()
     }
-
-    return undefined
   }
 
-  public peekType(type: MooTokenType, ...alt: MooTokenType[]): boolean {
+  public peekType(type: TokenType, ...alt: TokenType[]): boolean {
     let types = [type, ...alt]
     return types.includes(this.lexer.peek().type)
   }
 
-  public next(): [Trivia[], Token, Trivia[]] {
-    while (this.peekType('ws', 'newline', 'comment')) {
-      this.triviaBuffer.push(this.lexer.next())
-    }
-
-    let preTrivia = this.triviaBuffer
-    let token = this.lexer.next()
-    let postTrivia: Trivia[] = []
-
-    this.triviaBuffer = []
-
-    if (!this.hasNext()) {
-      postTrivia = this.triviaBuffer
-      this.triviaBuffer = []
-    }
-
-    return [preTrivia, token, postTrivia]
+  public next(): Token {
+    return this.lexer.next()
   }
 
   public hasNext(): boolean {
-    while (this.peekType('ws', 'newline', 'comment')) {
-      this.triviaBuffer.push(this.next())
-    }
-
     return this.lexer.hasNext()
   }
 
-  public peek(): Token {
-    while (this.peekType('ws', 'newline', 'comment')) {
-      this.triviaBuffer.add(this.next())
-    }
+  public lineHasNext(): boolean {
+    let next = this.lexer.peek()
+    if (next.type === 'eof') return false
 
+    return next.type !== 'newline'
+  }
+
+  public peek(): Token {
     return this.lexer.peek()
+  }
+
+  public ifPeek<T extends TokenType, R>(type: T, f: () => Result<R, ParseError>): Result<R | undefined, ParseError> {
+    return this.peekType(type) ? f() : Result.ok(undefined)
+  }
+
+  public nextIsIndented(): boolean {
+    let eof = this.peek().type === 'eof'
+    let newLine = this.lexer.previous()?.type ?? 'newline' === 'newline'
+    let indented = this.lexer.previous()?.endsWithSpace() || this.peek().beginsWithSpace()
+    return !eof && newLine && indented
   }
 
   private getPreviousLocation(): Location {
@@ -110,9 +114,9 @@ export class Parser {
     return previous ? getLocation(previous) : defaultLocation()
   }
 
-  public expect<T extends MooTokenType>(type: T): Result<Token<T>, ParseError>
-  public expect<T extends readonly MooTokenType[]>(types: T): Result<Token<TupleToUnion<T>>, ParseError>
-  public expect(type: MooTokenType, ...alt: MooTokenType[]): Result<Token, ParseError> {
+  public expect<T extends TokenType>(type: T): Result<Token<T>, ParseError>
+  public expect<T extends TokenType>(...types: T[]): Result<Token, ParseError>
+  public expect(type: TokenType, ...alt: TokenType[]): Result<Token, ParseError> {
     let next = this.next()
     let types = [type, ...alt]
 
@@ -121,18 +125,37 @@ export class Parser {
       return Result.err(ParseError.unexpectedEOF(location, types))
     }
 
-    if (!type.includes(next.type)) {
+    if (!types.includes(next.type)) {
       return Result.err(ParseError.unexpectedToken(next, types))
     }
 
     return Result.ok(next)
   }
 
-  public expectEndOfLine(): Result<void, ParseError> {
-    let next = this.next()
+  public expectIdentifier(name: string): Result<Token<'identifier'>, ParseError> {
+    return this.expect('identifier').andThen(token => {
+      if (token.innerText() !== name) {
+        return Result.err(ParseError.unexpectedToken(token, `identifier`))
+      }
 
-    return ['newline', 'eof'].includes(next.type)
-      ? Result.ok(undefined)
+      return Result.ok(token)
+    })
+  }
+
+  public skipIfIdentifier(name: string): Token<'identifier'> | undefined {
+    let next = this.peek()
+    if (next.type === 'identifier' && next.innerText() === name) {
+      return this.next() as Token<'identifier'>
+    }
+    return undefined
+  }
+
+  public expectEndOfLine(): Result<Token<'eof'> | Token<'newline'>, ParseError> {
+    let next = this.next()
+    let lineEnding: TokenType[] = ['newline', 'eof']
+
+    return lineEnding.includes(next.type)
+      ? Result.ok(next as Token<'eof'> | Token<'newline'>)
       : Result.err(ParseError.unexpectedToken(next, 'newline'))
   }
 
@@ -142,12 +165,28 @@ export class Parser {
    */
   public expectInteger(): Result<Token<'number'>, ParseError> {
     return this.expect('number').andThen(token => {
-      if (!Number.isInteger(parseFloat(token.value))) {
+      if (!Number.isInteger(parseFloat(token.innerText()))) {
         return Result.err(ParseError.invalidInteger(token))
       }
 
       return Result.ok(token)
     })
+  }
+
+  public inlineSpace(): Result<void, ParseError> {
+    if (!this.lineHasNext()) {
+      return Result.ok(undefined)
+    }
+
+    let before = this.lexer.previous()?.endsWithSpace() ?? false
+    let after = this.peek().beginsWithSpace()
+
+    if (before || after) {
+      return Result.ok(undefined)
+    }
+
+    let err = ParseError.unexpectedToken(this.peek())
+    return Result.err(err)
   }
 
   /**
@@ -158,30 +197,110 @@ export class Parser {
     return this.slurpUntil('newline')
   }
 
+  public slurpOpt(): Group | undefined {
+    return this.slurp().unwrapOr(undefined)
+  }
+
+  public slurpUntilHardSpace(): Result<Group, ParseError> {
+    let tokens = new GroupBuilder()
+    let next = this.peek()
+
+    while (next.type !== 'eof' && next.type !== 'newline' && !next.beginsWithHardSpace()) {
+      tokens.add(this.next())
+      if (next.endsWithHardSpace()) {
+        break
+      }
+
+      next = this.peek()
+    }
+
+    let group = tokens.build()
+
+    if (!group) {
+      if (next.type === 'eof') {
+        return Result.err(ParseError.unexpectedEOF(getLocation(next)))
+      } else {
+        return Result.err(ParseError.unexpectedToken(next))
+      }
+    } else {
+      return Result.ok(group)
+    }
+  }
+
+  public ifLineHasNext<T>(f: () => Result<T, ParseError>): Result<T | undefined, ParseError> {
+    return this.lineHasNext() ? f() : Result.ok(undefined)
+  }
+
+  public whileIndented<T>(f: () => Result<T, ParseError>): Result<T[], ParseError> {
+    let result: T[] = []
+
+    while (this.hasNext()) {
+      if (!this.nextIsIndented()) {
+        break
+      }
+
+      let next = f().andThen(value => {
+        return this.expectEndOfLine().map(() => value)
+      })
+
+      if (next.isErr()) {
+        return next
+      }
+
+      result.push(next.unwrap())
+    }
+
+    return Result.ok(result)
+  }
+
+  public untilSequence(
+    end: string,
+    ...rest: string[]
+  ): Result<[Group | undefined, ...Token<'identifier'>[]], ParseError> {
+    let search = [end, ...rest]
+    let searchIndex = 0
+    let buffer = new GroupBuilder()
+    let identifiers: Token<'identifier'>[] = []
+
+    while (searchIndex < search.length) {
+      let next = this.next()
+
+      if (next.type === 'eof') {
+        let err = ParseError.unexpectedEOF(getLocation(next), ['identifier'])
+        return Result.err(err)
+      }
+
+      if (next.type === 'identifier' && next.innerText() === search[searchIndex]) {
+        searchIndex++
+        identifiers.push(next as Token<'identifier'>)
+      } else {
+        searchIndex = 0
+        for (let identifier of identifiers) {
+          buffer.add(identifier)
+        }
+        buffer.add(next)
+      }
+    }
+
+    return Result.ok([buffer.build(), ...identifiers])
+  }
+
   /**
    * Consumes tokens until the specified type is encountered, a newline, or the
    * end of file.
    * @param type The type of token to consume until
-   * @param predicate An optional predicate function to filter tokens of the
-   *    specified type. If a token matches the given type but fails the
-   *    predicate, it will be included in the consumed tokens and processing
-   *    will continue. By default, every token passes the predicate.
    * @returns All tokens consumed until the specified type, newline, or end of
    *    file is encountered
    */
-  public slurpUntil(
-    type: MooTokenType | MooTokenType[],
-    opts?: { and: (t: Token) => boolean }
-  ): Result<Group, ParseError> {
+  public slurpUntil(type: TokenType | TokenType[]): Result<Group, ParseError> {
     let tokens = new GroupBuilder()
-    let predicate = opts?.and ?? ok
     let next = this.peek()
 
     if (!Array.isArray(type)) {
       type = [type]
     }
 
-    while (next.type !== 'eof' && (!type.includes(next.type) || !predicate(next)) && next.type !== 'newline') {
+    while (next.type !== 'eof' && !type.includes(next.type) && next.type !== 'newline') {
       tokens.add(this.next()!)
       next = this.peek()
     }
