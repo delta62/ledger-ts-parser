@@ -1,11 +1,31 @@
 import { Group } from './group'
-import type { Token } from './lexer'
+import type { Token, TokenType } from './lexer'
 import { Result } from './result'
 import { Parser } from './parser'
 import { ParseError } from './parse-error'
 
 export abstract class Node<T extends string> {
   constructor(public type: T) {}
+}
+
+export class SurroundedBy<O extends TokenType, C extends TokenType> extends Node<'surroundedBy'> {
+  public static parse<O extends TokenType, C extends TokenType>(
+    parser: Parser,
+    open: O,
+    close: C
+  ): Result<SurroundedBy<O, C>, ParseError> {
+    return Result.all(
+      () => parser.expect(open),
+      () => parser.slurpUntil(close),
+      () => parser.expect(close)
+    ).map(([open, contents, close]) => {
+      return new SurroundedBy(open, contents, close)
+    })
+  }
+
+  constructor(public readonly open: Token<O>, public readonly contents: Group, public readonly close: Token<C>) {
+    super('surroundedBy')
+  }
 }
 
 export class AccountRef extends Node<'accountRef'> {
@@ -149,26 +169,6 @@ export class AuxDate extends Node<'auxDate'> {
   }
 }
 
-export class Code extends Node<'code'> {
-  static parse(parser: Parser): Result<Code, ParseError> {
-    return Result.all(
-      () => parser.expect('lparen'),
-      () => parser.slurpUntil('rparen'),
-      () => parser.expect('rparen')
-    ).map(([lparen, contents, rparen]) => {
-      return new Code(lparen, contents, rparen)
-    })
-  }
-
-  constructor(
-    public readonly lparen: Token<'lparen'>,
-    public readonly contents: Group,
-    public readonly rparen: Token<'rparen'>
-  ) {
-    super('code')
-  }
-}
-
 export class Transaction extends Node<'transaction'> {
   public static parse(parser: Parser): Result<Transaction, ParseError> {
     let comments: Comment[] = []
@@ -178,7 +178,7 @@ export class Transaction extends Node<'transaction'> {
       () => parser.inlineSpace(),
       () => parser.skipIf(['bang', 'star']),
       () => parser.inlineSpace(),
-      () => parser.ifPeek('lparen', () => Code.parse(parser)),
+      () => parser.ifPeek('lparen', () => SurroundedBy.parse(parser, 'lparen', 'rparen')),
       () => parser.inlineSpace(),
       () => parser.ifLineHasNext(() => Payee.parse(parser)),
       () => parser.ifPeek('comment', () => Comment.parse(parser)),
@@ -232,7 +232,7 @@ export class Transaction extends Node<'transaction'> {
     public readonly auxDate: AuxDate | undefined,
     public readonly cleared: Token<'star'> | undefined,
     public readonly pending: Token<'bang'> | undefined,
-    public readonly code: Code | undefined,
+    public readonly code: SurroundedBy<'lparen', 'rparen'> | undefined,
     public readonly payee: Payee | undefined,
     public readonly comments: Comment[],
     public readonly postings: Posting[]
