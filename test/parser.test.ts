@@ -598,6 +598,27 @@ describe('directives', () => {
     expect(apply.args).toBeUndefined()
   })
 
+  it('parses apply tag directives with values', () => {
+    let input = 'apply tag foo'
+    let { file } = parse(input)
+    let apply = getChild(file, 0, 'apply')
+
+    expect(apply.apply.innerText()).toBe('apply')
+    expect(apply.name.innerText()).toBe('tag')
+    expect(apply.args?.innerText()).toBe('foo')
+  })
+
+  it('parses apply tag directives with k/v pairs', () => {
+    let input = 'apply tag foo: bar'
+    let { file } = parse(input)
+    let apply = getChild(file, 0, 'apply')
+    let [key, colon, value] = Array.from(apply.args ?? [])
+
+    expect(key.innerText()).toBe('foo')
+    expect(colon.innerText()).toBe(':')
+    expect(value.innerText()).toBe('bar')
+  })
+
   it('parses apply directives with arguments', () => {
     let input = 'apply Foo bar baz'
     let { file } = parse(input)
