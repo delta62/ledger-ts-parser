@@ -130,6 +130,18 @@ describe('Lexer', () => {
     expect(tokens[1]).toHaveTokenType('rparen')
   })
 
+  it('lexes lbrace and rbrace', () => {
+    let tokens = lexAll('{}')
+    expect(tokens[0]).toHaveTokenType('lbrace')
+    expect(tokens[1]).toHaveTokenType('rbrace')
+  })
+
+  it('lexes lbracket and rbracket', () => {
+    let tokens = lexAll('[]')
+    expect(tokens[0]).toHaveTokenType('lbracket')
+    expect(tokens[1]).toHaveTokenType('rbracket')
+  })
+
   it('lexes colon', () => {
     let token = lexOne(':')
     expect(token).toHaveTokenType('colon')

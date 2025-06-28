@@ -13,6 +13,8 @@ const LEDGER_RULES = {
   rparen: /\)/,
   lbrace: /{/,
   rbrace: /}/,
+  lbracket: /\[/,
+  rbracket: /\]/,
   hyphen: /-/,
   slash: /\//,
   star: /\*/,
