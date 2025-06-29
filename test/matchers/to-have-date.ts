@@ -1,5 +1,5 @@
 import { expect } from 'vitest'
-import { Transaction } from '../../src/node'
+import { Transaction } from '../../src/parse-node'
 
 export function toHaveDate(received: Transaction, date: string) {
   let parsed = received.date.raw.innerText()

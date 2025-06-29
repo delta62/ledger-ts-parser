@@ -1,5 +1,5 @@
 import { expect } from 'vitest'
-import type { Transaction } from '../../src/node'
+import type { Transaction } from '../../src/parse-node'
 
 export function toHavePayee(received: Transaction, name?: string) {
   let payeeName = received.payee?.group.innerText()

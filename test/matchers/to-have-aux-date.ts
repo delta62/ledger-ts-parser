@@ -1,5 +1,5 @@
 import { expect } from 'vitest'
-import { Transaction } from '../../src/node'
+import { Transaction } from '../../src/parse-node'
 import type { Matcher } from '../types'
 
 let toHaveAuxDate: Matcher = (received: Transaction, date: string) => {

@@ -6,11 +6,11 @@ import { ParseError } from './parse-error'
 import { unimplemented } from './util'
 import { Location } from './location'
 
-export abstract class Node<T extends string> {
+export abstract class ParseNOde<T extends string> {
   constructor(public type: T) {}
 }
 
-export class SurroundedBy<O extends TokenType, C extends TokenType> extends Node<'surroundedBy'> {
+export class SurroundedBy<O extends TokenType, C extends TokenType> extends ParseNOde<'surroundedBy'> {
   public static parse<O extends TokenType, C extends TokenType>(
     parser: Parser,
     open: O,
@@ -41,7 +41,7 @@ function invertBrace(open: 'lparen' | 'lbracket'): 'rparen' | 'rbracket' {
   }
 }
 
-export class AccountRef extends Node<'accountRef'> {
+export class AccountRef extends ParseNOde<'accountRef'> {
   public static parse(parser: Parser): Result<AccountRef, ParseError> {
     let nextType = parser.peek().type
 
@@ -79,7 +79,7 @@ export class AccountRef extends Node<'accountRef'> {
   }
 }
 
-export class Payee extends Node<'payee'> {
+export class Payee extends ParseNOde<'payee'> {
   public static parse(parser: Parser): Result<Payee, ParseError> {
     return parser
       .slurpUntilHardSpace()
@@ -107,7 +107,7 @@ export class Payee extends Node<'payee'> {
   }
 }
 
-export class DateNode extends Node<'date'> {
+export class DateNode extends ParseNOde<'date'> {
   static parse(parser: Parser): Result<DateNode, ParseError> {
     return Result.all(
       () => parser.expectInteger(),
@@ -134,7 +134,7 @@ export class DateNode extends Node<'date'> {
   }
 }
 
-export class Amount extends Node<'amount'> {
+export class Amount extends ParseNOde<'amount'> {
   public static parse(parser: Parser): Result<Amount, ParseError> {
     let hardSpace = parser.expectHardSpace()
     if (hardSpace.isErr()) {
@@ -174,7 +174,7 @@ export class Amount extends Node<'amount'> {
   }
 }
 
-export class Comment extends Node<'comment'> {
+export class Comment extends ParseNOde<'comment'> {
   static parse(parser: Parser): Result<Comment, ParseError> {
     return parser
       .expect('comment')
@@ -200,7 +200,7 @@ export class Comment extends Node<'comment'> {
   }
 }
 
-export class AuxDate extends Node<'auxDate'> {
+export class AuxDate extends ParseNOde<'auxDate'> {
   static parse(parser: Parser): Result<AuxDate, ParseError> {
     return Result.all(
       () => parser.expect('equal'),
@@ -213,7 +213,7 @@ export class AuxDate extends Node<'auxDate'> {
   }
 }
 
-export class Transaction extends Node<'transaction'> {
+export class Transaction extends ParseNOde<'transaction'> {
   public static parse(parser: Parser): Result<Transaction, ParseError> {
     let comments: Comment[] = []
     return Result.all(
@@ -285,7 +285,7 @@ export class Transaction extends Node<'transaction'> {
   }
 }
 
-export class Posting extends Node<'posting'> {
+export class Posting extends ParseNOde<'posting'> {
   public readonly comments: Comment[] = []
 
   public static parse(parser: Parser): Result<Posting, ParseError> {
@@ -303,7 +303,7 @@ export class Posting extends Node<'posting'> {
   }
 }
 
-export class Directive extends Node<'directive'> {
+export class Directive extends ParseNOde<'directive'> {
   static parse(parser: Parser): Result<ASTChild, ParseError> {
     let next = parser.peek()
     if (next.type !== 'identifier') {
@@ -349,7 +349,7 @@ export class Directive extends Node<'directive'> {
   }
 }
 
-export class CommentDirective extends Node<'commentDirective'> {
+export class CommentDirective extends ParseNOde<'commentDirective'> {
   public static parse(parser: Parser): Result<CommentDirective, ParseError> {
     return Result.all(
       () => parser.expect('identifier'),
@@ -371,7 +371,7 @@ export class CommentDirective extends Node<'commentDirective'> {
   }
 }
 
-export class SubDirective extends Node<'subDirective'> {
+export class SubDirective extends ParseNOde<'subDirective'> {
   public static parse(parser: Parser): Result<SubDirective, ParseError> {
     return Result.all(
       () => parser.expect('identifier'),
@@ -384,7 +384,7 @@ export class SubDirective extends Node<'subDirective'> {
   }
 }
 
-export class Apply extends Node<'apply'> {
+export class Apply extends ParseNOde<'apply'> {
   public static parse(parser: Parser): Result<Apply, ParseError> {
     return Result.all(
       () => parser.expect('identifier'),
@@ -405,7 +405,7 @@ export class Apply extends Node<'apply'> {
   }
 }
 
-export class End extends Node<'end'> {
+export class End extends ParseNOde<'end'> {
   public static parse(parser: Parser): Result<End, ParseError> {
     return Result.all(
       () => parser.expectIdentifier('end'),
@@ -426,7 +426,7 @@ export class End extends Node<'end'> {
   }
 }
 
-export class Alias extends Node<'alias'> {
+export class Alias extends ParseNOde<'alias'> {
   public static parse(parser: Parser): Result<Alias, ParseError> {
     return Result.all(
       () => parser.expectIdentifier('alias'),
@@ -449,7 +449,7 @@ export class Alias extends Node<'alias'> {
   }
 }
 
-export class File extends Node<'file'> {
+export class File extends ParseNOde<'file'> {
   static parse(parser: Parser): File {
     let children: ASTChild[] = []
 

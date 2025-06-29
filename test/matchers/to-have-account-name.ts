@@ -1,4 +1,4 @@
-import type { Posting } from '../../src/node'
+import type { Posting } from '../../src/parse-node'
 import type { Matcher } from '../types'
 import { expect } from 'vitest'
 

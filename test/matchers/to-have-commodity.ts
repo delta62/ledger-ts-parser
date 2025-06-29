@@ -1,5 +1,5 @@
 import { expect } from 'vitest'
-import type { Posting } from '../../src/node'
+import type { Posting } from '../../src/parse-node'
 import type { Matcher } from '../types'
 
 export type CommodityPosition = 'pre' | 'post'
