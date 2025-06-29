@@ -3,6 +3,8 @@ import type { Token, TokenType } from './lexer'
 import { Result } from './result'
 import { Parser } from './parser'
 import { ParseError } from './parse-error'
+import { unimplemented } from './util'
+import { Location } from './location'
 
 export abstract class Node<T extends string> {
   constructor(public type: T) {}
@@ -28,15 +30,52 @@ export class SurroundedBy<O extends TokenType, C extends TokenType> extends Node
   }
 }
 
+function invertBrace(open: 'lparen' | 'lbracket'): 'rparen' | 'rbracket' {
+  switch (open) {
+    case 'lbracket':
+      return 'rbracket'
+    case 'lparen':
+      return 'rparen'
+    default:
+      unimplemented('unreachable')
+  }
+}
+
 export class AccountRef extends Node<'accountRef'> {
   public static parse(parser: Parser): Result<AccountRef, ParseError> {
-    return parser.slurpUntilHardSpace().map(accountName => {
-      return new AccountRef(accountName)
-    })
+    let nextType = parser.peek().type
+
+    if (nextType === 'lparen' || nextType === 'lbracket') {
+      let closeType = invertBrace(nextType as 'lparen' | 'lbracket')
+
+      return Result.all(
+        () => parser.expect('lparen', 'lbracket'),
+        () => parser.slurpUntil(closeType),
+        () => parser.expect(closeType)
+      ).map(([open, body, close]) => new AccountRef(new SurroundedBy(open, body, close)))
+    } else {
+      return parser.slurpUntilHardSpace().map(body => new AccountRef(body))
+    }
   }
 
-  constructor(public readonly name: Group) {
+  public get location(): Location {
+    if (this.name instanceof SurroundedBy) {
+      return this.name.open.location
+    } else {
+      return this.name.location
+    }
+  }
+
+  constructor(public readonly name: Group | SurroundedBy<'lparen' | 'lbracket', 'rparen' | 'rbracket'>) {
     super('accountRef')
+  }
+
+  public accountName(): string {
+    if (this.name instanceof SurroundedBy) {
+      return this.name.contents.innerText()
+    } else {
+      return this.name.innerText()
+    }
   }
 }
 
@@ -97,6 +136,11 @@ export class DateNode extends Node<'date'> {
 
 export class Amount extends Node<'amount'> {
   public static parse(parser: Parser): Result<Amount, ParseError> {
+    let hardSpace = parser.expectHardSpace()
+    if (hardSpace.isErr()) {
+      return hardSpace
+    }
+
     let amount: Token<'number'> | undefined
     let minus = parser.skipIf('hyphen')
     let preCommodity: Group | undefined
@@ -249,7 +293,7 @@ export class Posting extends Node<'posting'> {
       () => AccountRef.parse(parser),
       () => parser.ifLineHasNext(() => Amount.parse(parser))
     ).map(([account, amount]) => {
-      parser.declareAccount(account.name.innerText(), account.name.location)
+      parser.declareAccount(account.accountName(), account.location)
       return new Posting(account, amount)
     })
   }

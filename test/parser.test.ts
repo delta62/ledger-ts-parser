@@ -315,6 +315,64 @@ describe('postings', () => {
     expect(posting).toHaveCommodity('USD', { position: 'post' })
   })
 
+  describe('virtual accounts', () => {
+    it('parses virtual accounts', () => {
+      let input = formatTransaction({ postings: [{ account: '(Assets:Virtual:Account)' }] })
+      let posting = parsePosting(input)
+
+      expect(posting).toHaveAccountName('Assets:Virtual:Account')
+      expect(posting).toBeVirtual({ balanced: false })
+    })
+
+    it('parses balancing virtual accounts', () => {
+      let input = formatTransaction({ postings: [{ account: '[Assets:Virtual:Account]' }] })
+      let posting = parsePosting(input)
+
+      expect(posting).toHaveAccountName('Assets:Virtual:Account')
+      expect(posting).toBeVirtual({ balanced: true })
+    })
+
+    it('parses virtual accounts with amounts', () => {
+      let input = formatTransaction({ postings: [{ account: '(Assets:Virtual:Account)', amount: '$300' }] })
+      let posting = parsePosting(input)
+
+      expect(posting).toHaveAccountName('Assets:Virtual:Account')
+      expect(posting).toHaveAmount('300')
+      expect(posting).toHaveCommodity('$', { position: 'pre' })
+      expect(posting).toBeVirtual({ balanced: false })
+    })
+
+    it('fails to parse unbalanced parentheses in virtual accounts', () => {
+      let input = formatTransaction({ postings: [{ account: '(Assets:Virtual:Account]', amount: '$300' }] })
+      expect(input).failsToParse(/rparen/i)
+    })
+
+    it('fails to parse unbalanced brackets balanced in virtual accounts', () => {
+      let input = formatTransaction({ postings: [{ account: '[Assets:Virtual:Account', amount: '$300' }] })
+      expect(input).failsToParse(/rbracket/i)
+    })
+
+    it('parses balancing virtual accounts with amounts', () => {
+      let input = formatTransaction({ postings: [{ account: '[Assets:Virtual:Account]', amount: '$300' }] })
+      let posting = parsePosting(input)
+
+      expect(posting).toHaveAccountName('Assets:Virtual:Account')
+      expect(posting).toHaveAmount('300')
+      expect(posting).toHaveCommodity('$', { position: 'pre' })
+      expect(posting).toBeVirtual({ balanced: true })
+    })
+
+    it('fails to parse virtual accounts with no hard space before the amount', () => {
+      let input = '2024-06-12 Test Payee\n  (Assets:Virtual:Account) $300'
+      expect(input).failsToParse(/hard space/i)
+    })
+
+    it('fails to parse balanced virtual accounts with no hard space before the amount', () => {
+      let input = '2024-06-12 Test Payee\n  [Assets:Virtual:Account]$300'
+      expect(input).failsToParse(/hard space/i)
+    })
+  })
+
   it('parses postings with negative amounts', () => {
     let input = formatTransaction({ postings: [{ account: 'Assets:Bank:Checking', amount: '-$100.00' }] })
     let posting = parsePosting(input)

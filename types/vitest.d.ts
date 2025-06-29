@@ -15,6 +15,7 @@ interface TokenMatchers<R = unknown> {
   toHaveCommodity: (commodity?: string, opts?: { position: 'pre' | 'post' }) => R
   toHaveComment: (matching?: RegExp) => R
   toHaveDiagnostic: (matching?: RegExp) => R
+  toBeVirtual: (opts: { balanced: boolean }) => R
 }
 
 declare module 'vitest' {

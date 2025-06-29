@@ -115,7 +115,7 @@ export class Parser {
   }
 
   public expect<T extends TokenType>(type: T): Result<Token<T>, ParseError>
-  public expect<T extends TokenType>(...types: T[]): Result<Token, ParseError>
+  public expect<T extends TokenType>(...types: T[]): Result<Token<T>, ParseError>
   public expect(type: TokenType, ...alt: TokenType[]): Result<Token, ParseError> {
     let next = this.next()
     let types = [type, ...alt]
@@ -140,6 +140,15 @@ export class Parser {
 
       return Result.ok(token)
     })
+  }
+
+  public expectHardSpace(): Result<void, ParseError> {
+    if (this.peek().beginsWithHardSpace() || this.lexer.previous()?.endsWithHardSpace()) {
+      return Result.ok(undefined)
+    }
+
+    let err = ParseError.unexpectedToken(this.peek(), 'hard space')
+    return Result.err(err)
   }
 
   public skipIfIdentifier(name: string): Token<'identifier'> | undefined {
