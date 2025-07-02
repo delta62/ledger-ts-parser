@@ -63,7 +63,6 @@ export class Parser {
     }
   }
 
-  // public skipIf(): Token<TokenType> | undefined
   public skipIf<T extends TokenType>(type: T): Token<T> | undefined
   public skipIf<T extends readonly TokenType[]>(types: T): Token<TupleToUnion<T>> | undefined
   public skipIf(types?: TokenType | TokenType[]): Token<TokenType> | undefined {
