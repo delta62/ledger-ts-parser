@@ -1,4 +1,7 @@
-import { Location } from './location'
+import { Group } from './group'
+import { Span } from './location'
+import * as parser from './parse-node'
+import { unimplemented } from './util'
 
 export type TransactionFlag = 'pending' | 'cleared'
 export type CurrencyPlacement = 'pre' | 'post'
@@ -33,30 +36,50 @@ export interface Visitor<T> {
   visitYearDirective(directive: YearDirective): T
 }
 
-export interface Span {
-  start: Readonly<Location>
-  end: Readonly<Location>
-}
-
 export abstract class ASTNode {
-  private _span: Readonly<Span>
-
-  constructor(start: Readonly<Location>, end: Readonly<Location>) {
-    this._span = { start, end }
-  }
-
+  constructor(public readonly span: Span) {}
   public abstract accept<T>(visitor: Visitor<T>): T
-
-  public get span(): Readonly<Span> {
-    return this._span
-  }
 }
 
 export type ASTChild = Transaction
 
 export class AST extends ASTNode {
-  constructor(public readonly children: ASTChild[], start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly children: ASTChild[], span: Span) {
+    super(span)
+  }
+
+  public static fromNode(file: parser.File): AST {
+    let children: ASTChild[] = []
+
+    for (let child of file.children) {
+      switch (child.type) {
+        case 'transaction':
+          children.push(Transaction.fromNode(child))
+          break
+        // case 'end':
+        //   children.push(fromEndDirective(child))
+        //   break
+        // case 'commentDirective':
+        //   children.push(fromCommentDirective(child))
+        //   break
+        // case 'comment':
+        //   unimplemented('Comment nodes are not supported in the AST')
+        //   break
+        // case 'alias':
+        //   children.push(fromAliasDirective(child))
+        //   break
+        // case 'apply':
+        //   children.push(fromApplyDirective(child))
+        //   break
+        // case 'directive':
+        //   children.push(fromDirective(child))
+        //   break
+        default:
+          unimplemented(`Unknown child type: ${child.type}`)
+      }
+    }
+
+    return new AST(children, file.span())
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -69,10 +92,9 @@ export class PayeeDirective extends ASTNode {
     public readonly name: string,
     public readonly alias: string | undefined,
     public readonly uuid: string | undefined,
-    start: Location,
-    end: Location
+    span: Span
   ) {
-    super(start, end)
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -81,8 +103,8 @@ export class PayeeDirective extends ASTNode {
 }
 
 export class IncludeDirective extends ASTNode {
-  constructor(public readonly path: string, start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly path: string, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -91,8 +113,8 @@ export class IncludeDirective extends ASTNode {
 }
 
 export class EvalDirective extends ASTNode {
-  constructor(public readonly expression: string, start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly expression: string, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -101,8 +123,8 @@ export class EvalDirective extends ASTNode {
 }
 
 export class ExprDirective extends ASTNode {
-  constructor(public readonly expression: string, start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly expression: string, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -111,8 +133,8 @@ export class ExprDirective extends ASTNode {
 }
 
 export class EndDirective extends ASTNode {
-  constructor(public readonly isApply: boolean, public readonly name: string, start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly isApply: boolean, public readonly name: string, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -128,10 +150,9 @@ export class CommodityDirective extends ASTNode {
     public readonly nomarket: boolean | undefined,
     public readonly alias: string | undefined,
     public readonly isDefault: boolean | undefined,
-    start: Location,
-    end: Location
+    span: Span
   ) {
-    super(start, end)
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -140,8 +161,8 @@ export class CommodityDirective extends ASTNode {
 }
 
 export class DefineDirective extends ASTNode {
-  constructor(public readonly name: string, public readonly value: string, start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly name: string, public readonly value: string, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -150,8 +171,8 @@ export class DefineDirective extends ASTNode {
 }
 
 export class CaptureDirective extends ASTNode {
-  constructor(public readonly search: string, public readonly replace: string, start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly search: string, public readonly replace: string, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -160,8 +181,8 @@ export class CaptureDirective extends ASTNode {
 }
 
 export class CheckDirective extends ASTNode {
-  constructor(public readonly expression: string, start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly expression: string, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -170,8 +191,8 @@ export class CheckDirective extends ASTNode {
 }
 
 export class TestDirective extends ASTNode {
-  constructor(public readonly text: string, start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly text: string, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -189,10 +210,9 @@ export class AccountDirective extends ASTNode {
     public readonly assert: string | undefined,
     public readonly evalu: string | undefined,
     public readonly isDefault: boolean | undefined,
-    start: Location,
-    end: Location
+    span: Span
   ) {
-    super(start, end)
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -201,8 +221,8 @@ export class AccountDirective extends ASTNode {
 }
 
 export class ApplyAccountDirective extends ASTNode {
-  constructor(public readonly name: string, start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly name: string, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -211,8 +231,8 @@ export class ApplyAccountDirective extends ASTNode {
 }
 
 export class ApplyFixedDirective extends ASTNode {
-  constructor(public currency: string, public fixed: string, start: Location, end: Location) {
-    super(start, end)
+  constructor(public currency: string, public fixed: string, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -221,8 +241,8 @@ export class ApplyFixedDirective extends ASTNode {
 }
 
 export class AliasDirective extends ASTNode {
-  constructor(public readonly name: string, public readonly alias: string, start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly name: string, public readonly alias: string, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -235,10 +255,9 @@ export class TagDirective extends ASTNode {
     public readonly tag: string,
     public readonly check: string | undefined,
     public readonly assert: string | undefined,
-    start: Location,
-    end: Location
+    span: Span
   ) {
-    super(start, end)
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -247,8 +266,8 @@ export class TagDirective extends ASTNode {
 }
 
 export class ApplyTagDirective extends ASTNode {
-  constructor(public readonly tag: string, public readonly value: string | undefined, start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly tag: string, public readonly value: string | undefined, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -257,8 +276,8 @@ export class ApplyTagDirective extends ASTNode {
 }
 
 export class YearDirective extends ASTNode {
-  constructor(public readonly year: number, start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly year: number, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -267,8 +286,8 @@ export class YearDirective extends ASTNode {
 }
 
 export class CommentDirective extends ASTNode {
-  constructor(public readonly text: string, start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly text: string, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -277,8 +296,8 @@ export class CommentDirective extends ASTNode {
 }
 
 export class AssertDirective extends ASTNode {
-  constructor(public readonly expression: string, start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly expression: string, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -287,8 +306,8 @@ export class AssertDirective extends ASTNode {
 }
 
 export class BucketDirective extends ASTNode {
-  constructor(public readonly name: string, start: Location, end: Location) {
-    super(start, end)
+  constructor(public readonly name: string, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -297,15 +316,25 @@ export class BucketDirective extends ASTNode {
 }
 
 export class Transaction extends ASTNode {
+  public static fromNode(node: parser.Transaction): Transaction {
+    let date = node.date.raw.innerText()
+    let auxDate = node.auxDate?.date?.raw.innerText()
+    let flag: TransactionFlag | undefined = node.cleared ? 'cleared' : node.pending ? 'pending' : undefined
+    let payee = node.payee?.group.innerText()
+    let postings: Posting[] = node.postings.map(Posting.fromNode)
+
+    return new Transaction(date, auxDate, flag, payee, postings, node.span())
+  }
+
   constructor(
     public readonly date: string,
-    public readonly payee: string,
-    public readonly postings: Posting[],
+    public readonly auxDate: string | undefined,
     public readonly flag: TransactionFlag | undefined,
-    start: Location,
-    end: Location
+    public readonly payee: string | undefined,
+    public readonly postings: Posting[],
+    span: Span
   ) {
-    super(start, end)
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -314,15 +343,23 @@ export class Transaction extends ASTNode {
 }
 
 export class Posting extends ASTNode {
+  public static fromNode(node: parser.Posting): Posting {
+    let account = Account.fromNode(node.account)
+    let amount = node.amount ? Amount.fromNode(node.amount) : undefined
+    let comment: string | undefined = undefined
+    let flag: TransactionFlag | undefined = undefined
+
+    return new Posting(account, amount, comment, flag, node.span())
+  }
+
   constructor(
     public readonly account: Account,
-    public readonly amount: Amount,
+    public readonly amount: Amount | undefined,
     public readonly comment: string | undefined,
     public readonly flag: TransactionFlag | undefined,
-    start: Location,
-    end: Location
+    span: Span
   ) {
-    super(start, end)
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -331,13 +368,27 @@ export class Posting extends ASTNode {
 }
 
 export class Amount extends ASTNode {
+  public static fromNode(node: parser.Amount): Amount {
+    let volume = parseFloat(node.amount.innerText())
+    let precision = (node.amount.innerText().match(/\.\d+$/) ?? ['', ''])[1].length
+    let currency: Currency | undefined = undefined
+
+    if (node.preCommodity) {
+      currency = Currency.fromNodePrefix(node.preCommodity)
+    } else if (node.postCommodity) {
+      currency = Currency.fromNodePostfix(node.postCommodity)
+    }
+
+    return new Amount(volume, precision, currency, node.span())
+  }
+
   constructor(
     public readonly volume: number,
+    public readonly precision: number,
     public readonly currency: Currency | undefined,
-    start: Location,
-    end: Location
+    span: Span
   ) {
-    super(start, end)
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -346,13 +397,16 @@ export class Amount extends ASTNode {
 }
 
 export class Currency extends ASTNode {
-  constructor(
-    public readonly symbol: string,
-    public readonly placement: CurrencyPlacement,
-    start: Location,
-    end: Location
-  ) {
-    super(start, end)
+  public static fromNodePrefix(node: Group): Currency {
+    return new Currency(node.innerText(), 'pre', node.span())
+  }
+
+  public static fromNodePostfix(node: Group): Currency {
+    return new Currency(node.innerText(), 'post', node.span())
+  }
+
+  constructor(public readonly symbol: string, public readonly placement: CurrencyPlacement, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {
@@ -361,8 +415,24 @@ export class Currency extends ASTNode {
 }
 
 class Account extends ASTNode {
-  constructor(public readonly name: string, public readonly virtualType: VirtualType, start: Location, end: Location) {
-    super(start, end)
+  public static fromNode(node: parser.AccountRef): Account {
+    let nameField = node.name
+    let name: string
+    let virtualType: VirtualType
+
+    if (nameField instanceof parser.SurroundedBy) {
+      name = nameField.contents.innerText()
+      virtualType = nameField.open.type === 'lparen' ? 'virtual' : 'virtual-balanced'
+    } else {
+      name = nameField.innerText()
+      virtualType = 'real'
+    }
+
+    return new Account(name, virtualType, node.span())
+  }
+
+  constructor(public readonly name: string, public readonly virtualType: VirtualType, span: Span) {
+    super(span)
   }
 
   public accept<T>(visitor: Visitor<T>): T {

@@ -77,7 +77,7 @@ export interface Lexer<R extends Rules> {
    * When you reach the end of Moo's internal buffer, next() will return undefined.
    * You can always reset() it and feed it more data when that happens.
    */
-  next(): Token<R> | undefined
+  next(): Token<keyof R> | undefined
   /**
    * Empty the internal buffer of the lexer, and set the line, column, and offset counts back to their initial value.
    */
@@ -104,7 +104,7 @@ export interface Lexer<R extends Rules> {
   [Symbol.iterator](): Iterator<Token<R>>
 }
 
-export interface Token<R extends Rules, T extends keyof R = keyof R> {
+export interface Token<T extends string> {
   /**
    * Returns value of the token, or its type if value isn't available.
    */

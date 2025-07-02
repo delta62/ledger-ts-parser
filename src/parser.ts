@@ -1,11 +1,12 @@
-import Lexer, { Token, TokenType } from './lexer'
+import Lexer, { TokenType } from './lexer'
 import { SymbolTable } from './symbol-table'
 import { ParseError } from './parse-error'
 import { Result } from './result'
 import { File } from './parse-node'
 import { Group, GroupBuilder } from './group'
 import { TupleToUnion } from './types'
-import { Location, getLocation, defaultLocation } from './location'
+import type { Token } from './token'
+import { Span } from './location'
 
 export interface ParserResult {
   file: File
@@ -32,15 +33,15 @@ export class Parser {
     }
   }
 
-  public declarePayee(name: string, location: Location): void {
+  public declarePayee(name: string, span: Span): void {
     if (!this.payees.has(name)) {
-      this.payees.add(name, location)
+      this.payees.add(name, span)
     }
   }
 
-  public declareAccount(name: string, location: Location): void {
+  public declareAccount(name: string, span: Span): void {
     if (!this.accounts.has(name)) {
-      this.accounts.add(name, location)
+      this.accounts.add(name, span)
     }
   }
 
@@ -62,10 +63,10 @@ export class Parser {
     }
   }
 
-  public skipIf(): Token | undefined
+  // public skipIf(): Token<TokenType> | undefined
   public skipIf<T extends TokenType>(type: T): Token<T> | undefined
   public skipIf<T extends readonly TokenType[]>(types: T): Token<TupleToUnion<T>> | undefined
-  public skipIf(types?: TokenType | TokenType[]): Token | undefined {
+  public skipIf(types?: TokenType | TokenType[]): Token<TokenType> | undefined {
     let nextType = this.peek().type
     let acceptedTypes = Array.isArray(types) ? types : [types]
 
@@ -79,7 +80,7 @@ export class Parser {
     return types.includes(this.lexer.peek().type)
   }
 
-  public next(): Token {
+  public next(): Token<TokenType> {
     return this.lexer.next()
   }
 
@@ -94,7 +95,7 @@ export class Parser {
     return next.type !== 'newline'
   }
 
-  public peek(): Token {
+  public peek(): Token<TokenType> {
     return this.lexer.peek()
   }
 
@@ -109,20 +110,20 @@ export class Parser {
     return !eof && newLine && indented
   }
 
-  private getPreviousLocation(): Location {
+  private getPreviousSpan(): Span {
     let previous = this.lexer.previous()
-    return previous ? getLocation(previous) : defaultLocation()
+    return previous?.span ?? [0, 0]
   }
 
   public expect<T extends TokenType>(type: T): Result<Token<T>, ParseError>
   public expect<T extends TokenType>(...types: T[]): Result<Token<T>, ParseError>
-  public expect(type: TokenType, ...alt: TokenType[]): Result<Token, ParseError> {
+  public expect(type: TokenType, ...alt: TokenType[]): Result<Token<TokenType>, ParseError> {
     let next = this.next()
     let types = [type, ...alt]
 
     if (next.type === 'eof') {
-      let location = this.getPreviousLocation()
-      return Result.err(ParseError.unexpectedEOF(location, types))
+      let span = this.getPreviousSpan()
+      return Result.err(ParseError.unexpectedEOF(span, types))
     }
 
     if (!types.includes(next.type)) {
@@ -147,7 +148,7 @@ export class Parser {
       return Result.ok(undefined)
     }
 
-    let err = ParseError.unexpectedToken(this.peek(), 'hard space')
+    let err = ParseError.unexpectedToken(this.peek())
     return Result.err(err)
   }
 
@@ -227,7 +228,7 @@ export class Parser {
 
     if (!group) {
       if (next.type === 'eof') {
-        return Result.err(ParseError.unexpectedEOF(getLocation(next)))
+        return Result.err(ParseError.unexpectedEOF(next.span))
       } else {
         return Result.err(ParseError.unexpectedToken(next))
       }
@@ -275,7 +276,7 @@ export class Parser {
       let next = this.next()
 
       if (next.type === 'eof') {
-        let err = ParseError.unexpectedEOF(getLocation(next), ['identifier'])
+        let err = ParseError.unexpectedEOF(next.span, ['identifier'])
         return Result.err(err)
       }
 
@@ -318,7 +319,7 @@ export class Parser {
 
     if (!group) {
       if (next.type === 'eof') {
-        return Result.err(ParseError.unexpectedEOF(getLocation(next), type))
+        return Result.err(ParseError.unexpectedEOF(next.span, type))
       } else {
         return Result.err(ParseError.unexpectedToken(next, type))
       }

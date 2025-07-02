@@ -1,10 +1,11 @@
-import type { Token } from './lexer'
-import type { Location } from './location'
+import type { Token } from './token'
+import { combineSpans, Span } from './location'
+import { TokenType } from './lexer'
 
 export class GroupBuilder {
-  private tokens: Token[] = []
+  private tokens: Token<TokenType>[] = []
 
-  public add(token: Token): GroupBuilder {
+  public add(token: Token<TokenType>): GroupBuilder {
     this.tokens.push(token)
     return this
   }
@@ -30,7 +31,7 @@ export class GroupBuilder {
 }
 
 export class Group {
-  private tokens: Token[]
+  private tokens: Token<TokenType>[]
   public readonly type = 'group'
 
   /**
@@ -40,11 +41,11 @@ export class Group {
    * @param tokens A non-empty array of tokens.
    * @returns A new Group instance containing the provided tokens.
    */
-  public static UNSAFE_nonEmpty(...tokens: Token[]): Group {
+  public static UNSAFE_nonEmpty(...tokens: Token<TokenType>[]): Group {
     return new Group(...tokens)
   }
 
-  private constructor(...tokens: Token[]) {
+  private constructor(...tokens: Token<TokenType>[]) {
     this.tokens = tokens
   }
 
@@ -52,8 +53,8 @@ export class Group {
     return this.tokens.length
   }
 
-  public get location(): Location {
-    return this.tokens[0].location
+  public get span(): Span {
+    return combineSpans(this.tokens[0].span, this.tokens[this.tokens.length - 1].span)
   }
 
   public innerText(): string {
@@ -102,7 +103,7 @@ export class Group {
     return this.tokens[this.tokens.length - 1].endsWithHardSpace()
   }
 
-  public push(token: Token) {
+  public push(token: Token<TokenType>) {
     this.tokens.push(token)
   }
 

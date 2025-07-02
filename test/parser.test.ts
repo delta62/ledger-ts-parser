@@ -364,12 +364,12 @@ describe('postings', () => {
 
     it('fails to parse virtual accounts with no hard space before the amount', () => {
       let input = '2024-06-12 Test Payee\n  (Assets:Virtual:Account) $300'
-      expect(input).failsToParse(/hard space/i)
+      expect(input).failsToParse(/unexpected token/i)
     })
 
     it('fails to parse balanced virtual accounts with no hard space before the amount', () => {
       let input = '2024-06-12 Test Payee\n  [Assets:Virtual:Account]$300'
-      expect(input).failsToParse(/hard space/i)
+      expect(input).failsToParse(/unexpected token/i)
     })
   })
 

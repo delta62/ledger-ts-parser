@@ -1,16 +1,19 @@
 import { Group } from './group'
-import type { Token, TokenType } from './lexer'
+import { TokenType } from './lexer'
+import { Token } from './token'
 import { Result } from './result'
 import { Parser } from './parser'
 import { ParseError } from './parse-error'
 import { unimplemented } from './util'
-import { Location } from './location'
+import { combineSpans, Span } from './location'
 
-export abstract class ParseNOde<T extends string> {
+export abstract class ParseNode<T extends string> {
   constructor(public type: T) {}
+
+  public abstract get span(): Span
 }
 
-export class SurroundedBy<O extends TokenType, C extends TokenType> extends ParseNOde<'surroundedBy'> {
+export class SurroundedBy<O extends TokenType, C extends TokenType> extends ParseNode<'surroundedBy'> {
   public static parse<O extends TokenType, C extends TokenType>(
     parser: Parser,
     open: O,
@@ -28,6 +31,10 @@ export class SurroundedBy<O extends TokenType, C extends TokenType> extends Pars
   constructor(public readonly open: Token<O>, public readonly contents: Group, public readonly close: Token<C>) {
     super('surroundedBy')
   }
+
+  public get span(): Span {
+    return combineSpans(this.open.span, this.close.span)
+  }
 }
 
 function invertBrace(open: 'lparen' | 'lbracket'): 'rparen' | 'rbracket' {
@@ -41,7 +48,7 @@ function invertBrace(open: 'lparen' | 'lbracket'): 'rparen' | 'rbracket' {
   }
 }
 
-export class AccountRef extends ParseNOde<'accountRef'> {
+export class AccountRef extends ParseNode<'accountRef'> {
   public static parse(parser: Parser): Result<AccountRef, ParseError> {
     let nextType = parser.peek().type
 
@@ -58,12 +65,8 @@ export class AccountRef extends ParseNOde<'accountRef'> {
     }
   }
 
-  public get location(): Location {
-    if (this.name instanceof SurroundedBy) {
-      return this.name.open.location
-    } else {
-      return this.name.location
-    }
+  public get span(): Span {
+    return this.name.span
   }
 
   constructor(public readonly name: Group | SurroundedBy<'lparen' | 'lbracket', 'rparen' | 'rbracket'>) {
@@ -79,7 +82,7 @@ export class AccountRef extends ParseNOde<'accountRef'> {
   }
 }
 
-export class Payee extends ParseNOde<'payee'> {
+export class Payee extends ParseNode<'payee'> {
   public static parse(parser: Parser): Result<Payee, ParseError> {
     return parser
       .slurpUntilHardSpace()
@@ -96,7 +99,7 @@ export class Payee extends ParseNOde<'payee'> {
       })
       .map(group => {
         let payeeText = group.innerText()
-        parser.declarePayee(payeeText, group.location)
+        parser.declarePayee(payeeText, group.span)
 
         return new Payee(group)
       })
@@ -105,9 +108,13 @@ export class Payee extends ParseNOde<'payee'> {
   constructor(public readonly group: Group) {
     super('payee')
   }
+
+  public get span(): Span {
+    return this.group.span
+  }
 }
 
-export class DateNode extends ParseNOde<'date'> {
+export class DateNode extends ParseNode<'date'> {
   static parse(parser: Parser): Result<DateNode, ParseError> {
     return Result.all(
       () => parser.expectInteger(),
@@ -132,16 +139,20 @@ export class DateNode extends ParseNOde<'date'> {
   constructor(public readonly raw: Group) {
     super('date')
   }
+
+  public get span(): Span {
+    return this.raw.span
+  }
 }
 
-export class Amount extends ParseNOde<'amount'> {
+export class Amount extends ParseNode<'amount'> {
   public static parse(parser: Parser): Result<Amount, ParseError> {
     let hardSpace = parser.expectHardSpace()
     if (hardSpace.isErr()) {
       return hardSpace
     }
 
-    let amount: Token<'number'> | undefined
+    let amount: Token<'number'>
     let minus = parser.skipIf('hyphen')
     let preCommodity: Group | undefined
     let postCommodity: Group | undefined
@@ -159,22 +170,32 @@ export class Amount extends ParseNOde<'amount'> {
       }
       amount = num.unwrap()
       postCommodity = undefined
+    } else {
+      let amt = parser.expect('number')
+      if (amt.isErr()) {
+        return amt
+      }
+      amount = amt.unwrap()
     }
 
     return Result.ok(new Amount(amount, minus, preCommodity, postCommodity))
   }
 
   constructor(
-    public readonly amount: Token<'number'> | undefined,
+    public readonly amount: Token<'number'>,
     public readonly minus: Token<'hyphen'> | undefined,
     public readonly preCommodity: Group | undefined,
     public readonly postCommodity: Group | undefined
   ) {
     super('amount')
   }
+
+  public get span(): Span {
+    return combineSpans(this.amount.span, this.minus?.span, this.preCommodity?.span, this.postCommodity?.span)
+  }
 }
 
-export class Comment extends ParseNOde<'comment'> {
+export class Comment extends ParseNode<'comment'> {
   static parse(parser: Parser): Result<Comment, ParseError> {
     return parser
       .expect('comment')
@@ -190,7 +211,7 @@ export class Comment extends ParseNOde<'comment'> {
   }
 
   constructor(
-    public readonly comment: Token<'comment'> | Group | undefined,
+    public readonly comment: Token<'comment'> | Group,
     public readonly commentChar: string,
     public readonly text: string,
     public readonly tags: Record<string, string | undefined>,
@@ -198,9 +219,13 @@ export class Comment extends ParseNOde<'comment'> {
   ) {
     super('comment')
   }
+
+  public get span(): Span {
+    return this.comment?.span
+  }
 }
 
-export class AuxDate extends ParseNOde<'auxDate'> {
+export class AuxDate extends ParseNode<'auxDate'> {
   static parse(parser: Parser): Result<AuxDate, ParseError> {
     return Result.all(
       () => parser.expect('equal'),
@@ -211,9 +236,13 @@ export class AuxDate extends ParseNOde<'auxDate'> {
   constructor(public readonly equal: Token<'equal'>, public readonly date: DateNode) {
     super('auxDate')
   }
+
+  public get span(): Span {
+    return combineSpans(this.equal.span, this.date.span)
+  }
 }
 
-export class Transaction extends ParseNOde<'transaction'> {
+export class Transaction extends ParseNode<'transaction'> {
   public static parse(parser: Parser): Result<Transaction, ParseError> {
     let comments: Comment[] = []
     return Result.all(
@@ -283,9 +312,20 @@ export class Transaction extends ParseNOde<'transaction'> {
   ) {
     super('transaction')
   }
+
+  public get span(): Span {
+    return combineSpans(
+      this.date.span,
+      this.auxDate?.span,
+      this.cleared?.span,
+      this.pending?.span,
+      this.code?.span,
+      this.payee?.span
+    )
+  }
 }
 
-export class Posting extends ParseNOde<'posting'> {
+export class Posting extends ParseNode<'posting'> {
   public readonly comments: Comment[] = []
 
   public static parse(parser: Parser): Result<Posting, ParseError> {
@@ -293,7 +333,7 @@ export class Posting extends ParseNOde<'posting'> {
       () => AccountRef.parse(parser),
       () => parser.ifLineHasNext(() => Amount.parse(parser))
     ).map(([account, amount]) => {
-      parser.declareAccount(account.accountName(), account.location)
+      parser.declareAccount(account.accountName(), account.span)
       return new Posting(account, amount)
     })
   }
@@ -301,9 +341,13 @@ export class Posting extends ParseNOde<'posting'> {
   constructor(public readonly account: AccountRef, public readonly amount: Amount | undefined) {
     super('posting')
   }
+
+  public get span(): Span {
+    return combineSpans(this.account.span, this.amount?.span)
+  }
 }
 
-export class Directive extends ParseNOde<'directive'> {
+export class Directive extends ParseNode<'directive'> {
   static parse(parser: Parser): Result<ASTChild, ParseError> {
     let next = parser.peek()
     if (next.type !== 'identifier') {
@@ -347,9 +391,13 @@ export class Directive extends ParseNOde<'directive'> {
   ) {
     super('directive')
   }
+
+  public get span(): Span {
+    return combineSpans(this.name.span, ...this.subDirectives.map(sd => sd.span))
+  }
 }
 
-export class CommentDirective extends ParseNOde<'commentDirective'> {
+export class CommentDirective extends ParseNode<'commentDirective'> {
   public static parse(parser: Parser): Result<CommentDirective, ParseError> {
     return Result.all(
       () => parser.expect('identifier'),
@@ -369,9 +417,13 @@ export class CommentDirective extends ParseNOde<'commentDirective'> {
   ) {
     super('commentDirective')
   }
+
+  public get span(): Span {
+    return combineSpans(this.startName.span, this.endName.span)
+  }
 }
 
-export class SubDirective extends ParseNOde<'subDirective'> {
+export class SubDirective extends ParseNode<'subDirective'> {
   public static parse(parser: Parser): Result<SubDirective, ParseError> {
     return Result.all(
       () => parser.expect('identifier'),
@@ -382,9 +434,13 @@ export class SubDirective extends ParseNOde<'subDirective'> {
   constructor(public readonly key: Token<'identifier'>, public readonly value: Group | undefined) {
     super('subDirective')
   }
+
+  public get span(): Span {
+    return combineSpans(this.key.span, this.value?.span)
+  }
 }
 
-export class Apply extends ParseNOde<'apply'> {
+export class Apply extends ParseNode<'apply'> {
   public static parse(parser: Parser): Result<Apply, ParseError> {
     return Result.all(
       () => parser.expect('identifier'),
@@ -403,9 +459,13 @@ export class Apply extends ParseNOde<'apply'> {
   ) {
     super('apply')
   }
+
+  public get span(): Span {
+    return combineSpans(this.apply.span, this.name.span)
+  }
 }
 
-export class End extends ParseNOde<'end'> {
+export class End extends ParseNode<'end'> {
   public static parse(parser: Parser): Result<End, ParseError> {
     return Result.all(
       () => parser.expectIdentifier('end'),
@@ -424,9 +484,13 @@ export class End extends ParseNOde<'end'> {
   ) {
     super('end')
   }
+
+  public get span(): Span {
+    return combineSpans(this.end.span, this.name.span)
+  }
 }
 
-export class Alias extends ParseNOde<'alias'> {
+export class Alias extends ParseNode<'alias'> {
   public static parse(parser: Parser): Result<Alias, ParseError> {
     return Result.all(
       () => parser.expectIdentifier('alias'),
@@ -447,9 +511,13 @@ export class Alias extends ParseNOde<'alias'> {
   ) {
     super('alias')
   }
+
+  public get span(): Span {
+    return combineSpans(this.alias.span, this.value.span)
+  }
 }
 
-export class File extends ParseNOde<'file'> {
+export class File extends ParseNode<'file'> {
   static parse(parser: Parser): File {
     let children: ASTChild[] = []
 
@@ -490,6 +558,14 @@ export class File extends ParseNOde<'file'> {
 
   constructor(public readonly children: ASTChild[]) {
     super('file')
+  }
+
+  public get span(): Span {
+    if (this.children.length === 0) {
+      return [0, 0]
+    }
+
+    return combineSpans(...this.children.map(c => c.span))
   }
 }
 

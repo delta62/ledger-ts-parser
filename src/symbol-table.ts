@@ -1,17 +1,17 @@
-import { Location } from './types'
+import type { Span } from './location'
 
 export class SymbolTable {
-  private table = new Map<string, Location>()
+  private table = new Map<string, Span>()
 
-  public add(key: string, location: Location) {
+  public add(key: string, span: Span) {
     if (this.table.has(key)) {
-      throw new Error(`Re-definition of symbol ${key} at ${location}`)
+      throw new Error(`Re-definition of symbol ${key} at ${span[0]}`)
     }
 
-    this.table.set(key, location)
+    this.table.set(key, span)
   }
 
-  public get(key: string): Location | undefined {
+  public get(key: string): Span | undefined {
     return this.table.get(key)
   }
 

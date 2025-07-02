@@ -1,23 +1,21 @@
-import type { Token } from './lexer'
-
 export interface Location {
   line: number
   column: number
   offset: number
 }
 
-export function getLocation(token: Token): Location {
-  return {
-    line: token.line,
-    column: token.col,
-    offset: token.offset,
-  }
-}
+export type Span = [number, number]
 
-export function defaultLocation(): Location {
-  return {
-    line: 1,
-    column: 1,
-    offset: 0,
-  }
+export function combineSpans(...spans: (Span | undefined)[]): Span {
+  let min = Infinity
+  let max = -Infinity
+
+  spans
+    .filter(span => !!span)
+    .forEach(([lo, hi]) => {
+      if (lo < min) min = lo
+      if (hi > max) max = hi
+    })
+
+  return [min, max]
 }
